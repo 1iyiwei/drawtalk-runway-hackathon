@@ -1,36 +1,28 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Runway Hackathon (Sept 30, 2026)
 
-## Getting Started
+Next.js + [`@runwayml/sdk`](https://docs.dev.runwayml.com) starter for the
+[Runway Hackathon](https://hackathon.runway.com/).
 
-First, run the development server:
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.local.example .env.local   # then paste your key from https://dev.runway.com
+npm install
+npm run dev                        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`RUNWAYML_API_SECRET` stays server-side (`src/lib/runway.ts`); never import that from client code.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## What's here
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/app/api/generate/route.ts`: POST form → `gen4.5` text-to-video, or image-to-video
+  when an image is attached (uploaded via `uploads.createEphemeral`). Uses
+  `.create(...).waitForTaskOutput()` and maps `TaskFailedError` to a 422.
+- `src/app/page.tsx`: prompt / ratio / duration / first-frame form and video player.
+- `.agents/skills/runway-dev*`: Runway Dev agent skills (installed via `npx skills add runwayml/skills`).
 
-## Learn More
+## Notes
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Request fields are per-model. Check https://docs.dev.runwayml.com/api.md before switching models.
+- Costs: https://docs.dev.runwayml.com/guides/pricing.md
+- Output URLs expire in 24–48h; download anything you want to keep.

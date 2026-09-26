@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@runwayml/sdk": "^4.20.1",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"

@@ -1,9 +1,6 @@
 
 # DrawTalk Gen-AI
 
-Many ideas discussed with [Google Gemini](https://share.google/aimode/Sheo0IOKbmQ8dCCKm).
-Ultimately, I want to do the following.
-
 Use multi-modal inputs, including direct manipulation, motion paths, natural languages, and drawings to animate a static image, either imported or manually drawn.
 
 One aspect I like about this idea is that it connects to my previous works on (1) Adobe Fresco motion brush which can create animations from drawings and (2) DIS paper on narrative motion blocks and UIST paper on draw-talking which combine natural languages and drawings to create animations.
