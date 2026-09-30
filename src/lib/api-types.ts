@@ -37,6 +37,7 @@ export type RunStatus = {
   status: "generating" | "done" | "error";
   started: number; // ms since epoch
   finished?: number;
+  taskId?: string; // Runway task id, once the task is created
   output?: string; // Runway output URL (expires in 24-48h; output.mp4 is the local copy)
   error?: string;
 };
@@ -51,4 +52,10 @@ export type RunSummary = RunStatus & {
   credits?: number;
   hasOutput: boolean;
   hasGuideVideo: boolean;
+};
+
+// GET /api/runs/<id>/progress
+export type RunProgress = {
+  taskStatus?: "PENDING" | "THROTTLED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+  progress?: number; // 0-1, while RUNNING
 };

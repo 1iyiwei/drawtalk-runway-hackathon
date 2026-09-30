@@ -47,7 +47,9 @@ Developer Portal (**Model Routers**): `drawtalk-preview` (optimize for latency) 
    draw its path on the canvas. The start dot and arrowhead are added automatically.
    **+ Layer** adds another subject/path.
    In **Guide video** mode (the default), each layer also has a stand-in sprite (emoji),
-   size, orientation (upright or follow the path) and flip; **Motion timing** sets the
+   size, orientation (follow the path or upright), the direction the sprite faces in its
+   image, and motion modifiers (**flap** Hz, **bob** px, **wobble** °) with per-sprite
+   defaults; **Motion timing** sets the
    speed along the path (ease in/out, constant, or your drawing speed).
    **Preview motion** plays the animation on the canvas.
 3. Edit the scene description. The prompt is generated from the scene and the layers; you
@@ -95,7 +97,10 @@ draw paths (layers) + describe  ──►  guide  ──►  Model Router  ─�
    constant, or ease in/out). A sprite is posed at each frame: position on the path and
    orientation from the path tangent. Each sprite has a native heading, so every sprite
    faces its direction of travel; side views (bee, bird, fish) mirror instead of flying
-   upside down. Frames are rendered one by one (not screen-recorded, so tab throttling
+   upside down. **Motion modifiers** add secondary motion to the guide itself — flap
+   (a squash across the wing axis, perpendicular to the sprite's heading), bob (offset
+   along the path normal) and wobble (rotation jitter) — with a per-layer phase so layers
+   don't move in sync. Frames are rendered one by one (not screen-recorded, so tab throttling
    can't drop frames) and encoded server-side by ffmpeg into an exact 24 fps H.264 MP4.
 2. **Semantic (prompt).** The prompt is generated per mode from the scene description
    and each layer's subject and *motion details* (secondary motion such as "wings
@@ -121,11 +126,12 @@ development (Dev MCP connected for account access).
 | Guide image as first frame | `veo3.1_fast` / `veo3.1` | rough | natural | path can persist / morph |
 | Guide image as reference | `seedance2_fast` / `seedance2_5` | loose | natural | path lines leak in |
 | Guide video (source) | `seedance2_fast` / `seedance2_5` | accurate | rigid (copies the icons) | none |
-| Guide video as reference | `seedance2_fast` / `seedance2_5` | *(testing)* | *(testing)* | *(testing)* |
+| Guide video as reference | `seedance2_fast` / `seedance2_5` | good | still rigid | none |
+| Guide video as reference + motion modifiers | `seedance2_fast` / `seedance2_5` | good | natural (bee) | none |
 
 The trade-off: the stronger the spatial conditioning, the more literally the model
-copies the guide — including its stiff motion. Next steps are to put life into the guide
-itself (procedural flap / bob / bank modifiers), upload your own sprites, camera paths
+copies the guide — including its stiff motion — so DrawTalk puts secondary motion into
+the guide itself (motion modifiers). Next steps: upload your own sprites, camera paths
 with multiplane parallax, and LLM/VLM agents for the planning and semantic roles (see
 [draw-talk.md](draw-talk.md)).
 

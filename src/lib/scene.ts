@@ -17,6 +17,10 @@ export type Layer = {
   spriteSize: number; // px at canvas resolution
   orient: "follow" | "upright"; // align with the path, or stay upright (mirror only)
   heading: number; // direction the sprite faces in its image, screen degrees (-90 = up)
+  // Motion modifiers drawn into the guide (secondary motion); see guide-video.ts.
+  flap: number; // wing beats per second, 0 = off
+  bob: number; // px perpendicular to the path
+  wobble: number; // degrees of rotation jitter
 };
 
 export type AspectRatio = "16:9" | "9:16";

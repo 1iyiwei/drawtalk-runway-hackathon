@@ -27,9 +27,10 @@ export async function POST(request: Request) {
 
   try {
     const client = getRunway();
-    const task = await client.generate.video
-      .create({ configId: saved.configId, input: saved.input })
-      .waitForTaskOutput();
+    const pending = client.generate.video.create({ configId: saved.configId, input: saved.input });
+    // Record the task id as soon as it exists, for progress polling.
+    pending.then(({ id }) => setStatus({ status: "generating", started, taskId: id })).catch(() => {});
+    const task = await pending.waitForTaskOutput();
 
     const output = task.output ?? [];
     let local: string | null = null;
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
       }
     }
     await writeRunFile(runId, "task.json", JSON.stringify(task, null, 2));
-    await setStatus({ status: "done", started, finished: Date.now(), output: output[0] });
+    await setStatus({ status: "done", started, finished: Date.now(), taskId: task.id, output: output[0] });
     return Response.json({ runId, taskId: task.id, output, local });
   } catch (error) {
     if (error instanceof TaskFailedError) {

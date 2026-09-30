@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
-import { type Mode, type RunSummary, VIDEO_MODES } from "@/lib/api-types";
+import { type Mode, type RunProgress, type RunSummary, VIDEO_MODES } from "@/lib/api-types";
 import {
   type AspectRatio,
   backgroundLuminance,
@@ -22,6 +22,9 @@ import {
 } from "@/lib/scene";
 import {
   defaultHeading,
+  defaultMotion,
+  MAX_FLAP_HZ,
+  motionOf,
   drawStartSprites,
   GUIDE_FPS,
   HEADINGS,
@@ -49,6 +52,8 @@ type Run = {
   started: number;
   finished?: number;
   restored?: boolean; // loaded from disk after a page reload
+  taskStatus?: RunProgress["taskStatus"]; // Runway task status while generating
+  progress?: number; // 0-1
 };
 
 const MODES: { value: Mode; label: string }[] = [
@@ -95,6 +100,7 @@ function newLayer(layers: Layer[]): Layer {
     secondary: "",
     sprite: SPRITES[layers.length % SPRITES.length].emoji,
     heading: SPRITES[layers.length % SPRITES.length].heading,
+    ...SPRITES[layers.length % SPRITES.length].motion,
     spriteSize: 96,
     orient: "follow",
   };
@@ -255,6 +261,47 @@ export default function Home() {
       if (timer) clearInterval(timer);
     };
   }, [restoredPending]);
+
+  // Poll Runway task progress for generating runs (Runway updates at most every ~5 s).
+  const generatingIds = runs
+    .filter((r) => r.status === "generating" && r.runId)
+    .map((r) => r.runId!)
+    .join(",");
+  const [now, setNow] = useState(0); // clock for elapsed time, ticks while generating
+  useEffect(() => {
+    if (!generatingIds) return;
+    const ids = generatingIds.split(",");
+    const poll = async () => {
+      for (const id of ids) {
+        const res = await fetch(`/api/runs/${id}/progress`).catch(() => null);
+        if (!res?.ok) continue;
+        const p = (await res.json()) as RunProgress;
+        setRuns((rs) =>
+          rs.map((r) =>
+            r.runId === id && r.status === "generating"
+              ? { ...r, taskStatus: p.taskStatus ?? r.taskStatus, progress: p.progress ?? r.progress }
+              : r,
+          ),
+        );
+      }
+    };
+    poll();
+    const pollTimer = setInterval(poll, 5000);
+    return () => clearInterval(pollTimer);
+  }, [generatingIds]);
+
+  // Tick the elapsed-time display while any run is in progress.
+  const anyActive = runs.some((r) => r.status !== "done" && r.status !== "error");
+  useEffect(() => {
+    if (!anyActive) return;
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [anyActive]);
 
   // Negative prompts are only supported by some models (Veo), so they narrow routing.
   const negativeActive = useNegative && mode === "first";
@@ -592,7 +639,11 @@ export default function Home() {
                       aria-label="Sprite"
                       value={l.sprite}
                       onChange={(e) =>
-                        updateLayer(l.id, { sprite: e.target.value, heading: defaultHeading(e.target.value) })
+                        updateLayer(l.id, {
+                          sprite: e.target.value,
+                          heading: defaultHeading(e.target.value),
+                          ...defaultMotion(e.target.value),
+                        })
                       }
                     >
                       {SPRITES.map(({ emoji }) => (
@@ -632,6 +683,29 @@ export default function Home() {
                         ))}
                       </select>
                     </label>
+                    {(
+                      [
+                        ["flap", "Hz", 0, MAX_FLAP_HZ, 0.5, "wing beats per second"],
+                        ["bob", "px", 0, 40, 1, "up/down drift across the path"],
+                        ["wobble", "°", 0, 30, 1, "rotation jitter"],
+                      ] as const
+                    ).map(([key, unit, min, max, step, title]) => (
+                      <label key={key} className={styles.inline} title={title}>
+                        {key}
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={motionOf(l)[key]}
+                          onChange={(e) => updateLayer(l.id, { [key]: Number(e.target.value) })}
+                        />
+                        <span className={styles.value}>
+                          {motionOf(l)[key]}
+                          {unit}
+                        </span>
+                      </label>
+                    ))}
                   </div>
                 )}
                 <div className={styles.swatches}>
@@ -692,9 +766,7 @@ export default function Home() {
                   <video src={r.local ?? r.output} controls autoPlay loop muted playsInline />
                 ) : (
                   <div className={styles.placeholder}>
-                    {r.status === "rendering" && "Rendering guide frames…"}
-                    {r.status === "planning" && "Uploading & routing…"}
-                    {r.status === "generating" && "Generating… (a minute or two)"}
+                    {r.status !== "error" && <RunProgressBar run={r} now={now} />}
                     {r.status === "error" && <span className={styles.warn}>{r.error}</span>}
                   </div>
                 )}
@@ -714,5 +786,42 @@ export default function Home() {
         </section>
       )}
     </main>
+  );
+}
+
+function RunProgressBar({ run, now }: { run: Run; now: number }) {
+  const elapsed = Math.max(0, Math.round((now - run.started) / 1000));
+  let label: string;
+  let fraction: number | null = null; // null = indeterminate
+  if (run.status === "rendering") label = "Rendering guide frames…";
+  else if (run.status === "planning") label = "Uploading & routing…";
+  else if (run.taskStatus === "RUNNING") {
+    fraction = run.progress ?? 0;
+    label = `Generating ${Math.round(fraction * 100)}%`;
+  } else if (run.taskStatus === "THROTTLED") label = "Queued (rate limit), will start automatically…";
+  else if (run.taskStatus === "PENDING") label = "Waiting for a GPU…";
+  else if (run.taskStatus === "SUCCEEDED") {
+    fraction = 1;
+    label = "Downloading output…";
+  } else label = "Submitting…";
+  return (
+    <div className={styles.progress}>
+      <div className={styles.progressLabel}>
+        <span>{label}</span>
+        <span>{elapsed}s</span>
+      </div>
+      <div
+        className={styles.progressTrack}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
+      >
+        <div
+          className={fraction === null ? styles.progressIndeterminate : styles.progressFill}
+          style={fraction === null ? undefined : { width: `${Math.max(2, fraction * 100)}%` }}
+        />
+      </div>
+    </div>
   );
 }
