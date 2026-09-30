@@ -6,7 +6,9 @@ import {
   CANVAS_SIZE,
   cameraLayer,
   DEFAULT_ZOOM,
+  depthRatio,
   drawBackground,
+  horizonY,
   type Layer,
   type Point,
   type Scene,
@@ -28,21 +30,33 @@ export type Timing = "eased" | "constant" | "drawn";
 //   wobble  rotation jitter amplitude, in degrees
 export type Motion = { flap: number; bob: number; wobble: number };
 
-export const SPRITES: { emoji: string; heading: number; motion: Motion }[] = [
+// orient: default orientation mode; ground walkers stay upright (mirror only) so they
+// don't tilt nose-up when walking into the distance.
+export const SPRITES: { emoji: string; heading: number; motion: Motion; orient?: "follow" | "upright" }[] = [
   { emoji: "🦋", heading: -90, motion: { flap: 4, bob: 12, wobble: 8 } }, // top view, head up
   { emoji: "🐝", heading: 180, motion: { flap: 8, bob: 6, wobble: 10 } }, // side view
   { emoji: "🐞", heading: -90, motion: { flap: 0, bob: 4, wobble: 6 } }, // crawls, wings closed
   { emoji: "🐟", heading: 180, motion: { flap: 0, bob: 6, wobble: 6 } },
-  { emoji: "🐈", heading: 180, motion: { flap: 0, bob: 4, wobble: 2 } },
-  { emoji: "🐕", heading: 180, motion: { flap: 0, bob: 5, wobble: 2 } },
-  { emoji: "🐎", heading: 180, motion: { flap: 0, bob: 6, wobble: 2 } },
-  { emoji: "🚗", heading: 180, motion: { flap: 0, bob: 1, wobble: 0 } },
+  { emoji: "🐈", heading: 180, motion: { flap: 0, bob: 4, wobble: 2 }, orient: "upright" },
+  { emoji: "🐕", heading: 180, motion: { flap: 0, bob: 5, wobble: 2 }, orient: "upright" },
+  { emoji: "🐎", heading: 180, motion: { flap: 0, bob: 6, wobble: 2 }, orient: "upright" },
+  { emoji: "🚗", heading: 180, motion: { flap: 0, bob: 1, wobble: 0 }, orient: "upright" },
   { emoji: "✈️", heading: -45, motion: { flap: 0, bob: 3, wobble: 2 } }, // pointing up-right
   { emoji: "🚀", heading: -45, motion: { flap: 0, bob: 2, wobble: 3 } },
   { emoji: "⚽", heading: -90, motion: { flap: 0, bob: 0, wobble: 0 } },
   { emoji: "🍂", heading: -90, motion: { flap: 0, bob: 14, wobble: 25 } },
   { emoji: "🎈", heading: -90, motion: { flap: 0, bob: 8, wobble: 6 } },
+  // Night / forest set: walkers into the distance, flyers toward the camera.
+  { emoji: "🦌", heading: 180, motion: { flap: 0, bob: 4, wobble: 2 }, orient: "upright" },
+  { emoji: "🚶", heading: 180, motion: { flap: 0, bob: 3, wobble: 2 }, orient: "upright" },
+  { emoji: "🦇", heading: -90, motion: { flap: 7, bob: 10, wobble: 8 } }, // front view, wings spread
+  { emoji: "🦉", heading: -90, motion: { flap: 3, bob: 8, wobble: 4 } }, // front view
+  { emoji: "✨", heading: -90, motion: { flap: 0, bob: 16, wobble: 25 } }, // fireflies
 ];
+
+export function defaultOrient(emoji: string): "follow" | "upright" {
+  return SPRITES.find((s) => s.emoji === emoji)?.orient ?? "follow";
+}
 
 // Flap is capped below 24 fps / 2 to avoid strobing.
 export const MAX_FLAP_HZ = 10;
@@ -163,8 +177,17 @@ export function poseAt(track: Track, u: number, timing: Timing): Pose {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a)); // to (-pi, pi]
 
-/** Draw a layer's sprite at a pose; tSec (seconds) drives the motion modifiers. */
-export function drawSprite(ctx: CanvasRenderingContext2D, layer: Layer, pose: Pose, tSec = 0) {
+/**
+ * Draw a layer's sprite at a pose; tSec (seconds) drives the motion modifiers, and
+ * sizeScale is the 3D perspective scale (1 = drawn size).
+ */
+export function drawSprite(
+  ctx: CanvasRenderingContext2D,
+  layer: Layer,
+  pose: Pose,
+  tSec = 0,
+  sizeScale = 1,
+) {
   // Direction the sprite faces in its image (layers from older sessions lack a heading).
   const headingDeg = Number.isFinite(layer.heading) ? layer.heading : defaultHeading(layer.sprite);
   const native = (headingDeg * Math.PI) / 180;
@@ -177,7 +200,7 @@ export function drawSprite(ctx: CanvasRenderingContext2D, layer: Layer, pose: Po
 
   ctx.save();
   // Bob: offset along the path normal.
-  const bob = m.bob * Math.sin(TAU * (1.2 * tSec + phase));
+  const bob = m.bob * sizeScale * Math.sin(TAU * (1.2 * tSec + phase));
   ctx.translate(pose.x - Math.sin(pose.angle) * bob, pose.y + Math.cos(pose.angle) * bob);
   if (layer.orient === "follow") {
     if (sideView) {
@@ -206,7 +229,7 @@ export function drawSprite(ctx: CanvasRenderingContext2D, layer: Layer, pose: Po
     ctx.scale(squash, 1);
     ctx.rotate(-wingAxis);
   }
-  ctx.font = `${layer.spriteSize}px ${EMOJI_FONT}`;
+  ctx.font = `${layer.spriteSize * sizeScale}px ${EMOJI_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(layer.sprite, 0, 0);
@@ -232,6 +255,8 @@ function cameraRig(scene: Scene): CameraRig | null {
 
 export type CameraView = { cx: number; cy: number; zoom: number };
 
+const MAX_ZOOM = 4; // beyond this the background gets too blurry
+
 /**
  * Camera at time fraction u: the view center travels along the camera path, and the
  * zoom interpolates from start to end. The view (frame / zoom) is kept inside the
@@ -244,13 +269,26 @@ function cameraAt(rig: CameraRig, u: number, scene: Scene): CameraView {
   const { w, h } = CANVAS_SIZE[scene.aspect];
   const p = poseAt(rig.track, u, timing);
   const v = timing === "constant" || timing === "drawn" ? u : smoothstep(Math.min(1, Math.max(0, u)));
-  const zoom = rig.zoom[0] + (rig.zoom[1] - rig.zoom[0]) * v;
+  let zoom = rig.zoom[0] + (rig.zoom[1] - rig.zoom[0]) * v;
+  let cx = p.x;
+  let cy = p.y;
+  if (scene.depth3d) {
+    // Dolly: the path is a route on the ground. Moving toward the horizon moves the
+    // camera forward, approximated by scaling the view about the vanishing point above
+    // the camera's lateral position; sideways movement trucks the camera.
+    const p0 = rig.track.pts[0];
+    const k = 1 / depthRatio(scene, p.y, p0.y); // > 1 when moving forward
+    const yh = horizonY(scene);
+    cx = w / 2 + (p.x - p0.x);
+    cy = yh + (h / 2 - yh) / k;
+    zoom = Math.min(MAX_ZOOM, zoom * k);
+  }
   const hw = w / (2 * zoom);
   const hh = h / (2 * zoom);
   return {
-    cx: Math.min(w - hw, Math.max(hw, p.x)),
-    cy: Math.min(h - hh, Math.max(hh, p.y)),
-    zoom,
+    cx: Math.min(w - hw, Math.max(hw, cx)),
+    cy: Math.min(h - hh, Math.max(hh, cy)),
+    zoom: Math.max(1, zoom),
   };
 }
 
@@ -283,7 +321,9 @@ export function drawGuideFrame(
       const p = Number.isFinite(layer.parallax) ? (layer.parallax as number) : 1;
       ctx.translate(-(p - 1) * (cam.cx - cam0.cx), -(p - 1) * (cam.cy - cam0.cy));
     }
-    drawSprite(ctx, layer, poseAt(track, u, timing), tSec);
+    const pose = poseAt(track, u, timing);
+    const size = scene.depth3d ? depthRatio(scene, pose.y, track.pts[0].y) : 1;
+    drawSprite(ctx, layer, pose, tSec, size);
     ctx.restore();
   }
   ctx.restore();
