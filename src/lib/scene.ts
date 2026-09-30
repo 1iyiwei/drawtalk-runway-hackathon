@@ -147,7 +147,7 @@ export const GUIDE_NEGATIVE =
   "drawn lines, colored paths, arrows, dots, markers, annotations, sketch strokes, text";
 
 // How the drawing conditions the model; mirrors Mode in api-types.
-export type PromptMode = "first" | "reference" | "clean-first" | "video";
+export type PromptMode = "first" | "reference" | "clean-first" | "video" | "video-reference";
 
 // Secondary motion for a layer ("wings flapping fast"), or a generic default.
 function secondaryMotion(l: Layer): string {
@@ -175,6 +175,22 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
     return parts.join(" ");
   }
 
+  if (mode === "video-reference") {
+    // Guide video as a reference only: looser, so the model animates more freely.
+    parts.push(
+      "The reference video is only a rough motion guide made of flat icons: it shows where and when each subject moves.",
+    );
+    for (const l of drawn) {
+      parts.push(
+        `The ${l.sprite} icon marks ${who(l)}, which travels the same route with the same timing, with ${secondaryMotion(l)}.`,
+      );
+    }
+    parts.push(
+      "The output video shows only the real, fully animated subjects in the real scene: no icons, emoji, lines or other guide marks. Keep the camera still.",
+    );
+    return parts.join(" ");
+  }
+
   if (mode === "first") {
     // The drawing is the first frame.
     for (const l of drawn) {
@@ -184,7 +200,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
       );
     }
     parts.push(
-      "The colored lines, dots and arrows are only motion guides: they are not part of the scene, disappear immediately, and never appear in the video.",
+      "The colored lines, dots and arrows are only motion guides: they are not part of the scene, disappear immediately, and never appear in the output video.",
     );
     return parts.join(" ");
   }
@@ -200,7 +216,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
     );
   }
   parts.push(
-    "The video shows only the real scene: no drawn lines, paths, dots, arrows or other diagram marks appear in any frame.",
+    "The output video shows only the real scene: no drawn lines, paths, dots, arrows or other diagram marks appear in any frame.",
   );
   return parts.join(" ");
 }

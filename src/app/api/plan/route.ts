@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { toFile } from "@runwayml/sdk";
 import { dryRunVideo, getRunway, ROUTER_CONFIGS, type RouterVideoInput } from "@/lib/runway";
 import { newRunId, parseDataUrl, runPath, writeRunFile } from "@/lib/runs";
-import type { PlanRequest, SavedRequest } from "@/lib/api-types";
+import { VIDEO_MODES, type PlanRequest, type SavedRequest } from "@/lib/api-types";
 
 const run = promisify(execFile);
 
@@ -55,14 +55,15 @@ export async function POST(request: Request) {
 
   const configId = ROUTER_CONFIGS[body.quality];
   if (!configId) return Response.json({ error: "Unknown quality." }, { status: 400 });
-  if (!["first", "reference", "clean-first", "video"].includes(body.mode)) {
+  if (!["first", "reference", "clean-first", "video", "video-reference"].includes(body.mode)) {
     return Response.json({ error: "Unknown mode." }, { status: 400 });
   }
   if (!body.prompt?.trim()) return Response.json({ error: "Prompt is empty." }, { status: 400 });
   if (body.mode === "clean-first" && !body.clean) {
     return Response.json({ error: "clean-first mode needs a background." }, { status: 400 });
   }
-  if (body.mode === "video" && (frames.length < 2 || frames.length > 30 * 30)) {
+  const videoMode = VIDEO_MODES.includes(body.mode);
+  if (videoMode && (frames.length < 2 || frames.length > 30 * 30)) {
     return Response.json({ error: "video mode needs 2-900 guide frames." }, { status: 400 });
   }
   if (!(fps > 0 && fps <= 30)) return Response.json({ error: "fps must be 1-30." }, { status: 400 });
@@ -97,6 +98,15 @@ export async function POST(request: Request) {
       const videoUri = await uploadFile(name, "video/mp4");
       // Video-to-video: output length follows the source video, so no duration.
       input.referenceVideos = [{ uri: videoUri, role: "source" }];
+    } else if (body.mode === "video-reference") {
+      const name = await encodeFrames(runId, frames, fps);
+      const videoUri = await uploadFile(name, "video/mp4");
+      // Looser: the guide video is context, not the frames to restyle.
+      input.referenceVideos = [{ uri: videoUri, role: "reference" }];
+      if (body.clean) {
+        input.referenceImages = [{ uri: await saveAndUpload(body.clean, "clean.png"), role: "first" }];
+      }
+      input.duration = body.duration;
     } else {
       const cleanUri =
         body.mode === "clean-first" && body.clean
@@ -125,14 +135,14 @@ export async function POST(request: Request) {
         {
           runId,
           error: error instanceof Error ? error.message : String(error),
-          guideVideo: body.mode === "video" ? `/api/runs/${runId}/guide.mp4` : undefined,
+          guideVideo: videoMode ? `/api/runs/${runId}/guide.mp4` : undefined,
         },
         { status: 422 },
       );
     }
     saved.routing = routing;
     await writeRunFile(runId, "request.json", JSON.stringify(saved, null, 2));
-    const guideVideo = body.mode === "video" ? `/api/runs/${runId}/guide.mp4` : undefined;
+    const guideVideo = videoMode ? `/api/runs/${runId}/guide.mp4` : undefined;
     return Response.json({ runId, configId, routing, guideVideo });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

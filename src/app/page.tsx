@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
-import type { Mode } from "@/lib/api-types";
+import { type Mode, type RunSummary, VIDEO_MODES } from "@/lib/api-types";
 import {
   type AspectRatio,
   backgroundLuminance,
@@ -48,14 +48,37 @@ type Run = {
   error?: string;
   started: number;
   finished?: number;
+  restored?: boolean; // loaded from disk after a page reload
 };
 
 const MODES: { value: Mode; label: string }[] = [
   { value: "video", label: "Guide video: sprites move along paths" },
+  { value: "video-reference", label: "Guide video as reference (looser motion)" },
   { value: "first", label: "Guide image as first frame" },
   { value: "reference", label: "Guide image as reference" },
   { value: "clean-first", label: "Clean background first + guide reference" },
 ];
+
+function fromSummary(s: RunSummary): Run {
+  const url = (file: string) => `/api/runs/${s.runId}/${file}`;
+  return {
+    runId: s.runId,
+    status: s.status,
+    guide: url("guide.png"),
+    guideVideo: s.hasGuideVideo ? url("guide.mp4") : undefined,
+    mode: s.mode ?? "first",
+    quality: s.quality ?? "preview",
+    prompt: s.prompt ?? "",
+    model: s.model,
+    credits: s.credits,
+    output: s.output,
+    local: s.hasOutput ? url("output.mp4") : null,
+    error: s.error,
+    started: s.started,
+    finished: s.finished,
+    restored: true,
+  };
+}
 
 let layerCounter = 0;
 function newLayer(layers: Layer[]): Layer {
@@ -94,11 +117,12 @@ export default function Home() {
   });
   const [selectedId, setSelectedId] = useState<string>(() => layers[0].id);
   const [mode, setMode] = useState<Mode>("video");
-  const [timing, setTiming] = useState<Timing>("eased");
+  const isVideo = VIDEO_MODES.includes(mode);
+  const [timing, setTiming] = useState<Timing>("drawn");
   const [busyRendering, setBusyRendering] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [quality, setQuality] = useState<Quality>("preview");
-  const [duration, setDuration] = useState(6);
+  const [duration, setDuration] = useState(4);
   const [useNegative, setUseNegative] = useState(true);
   const [promptOverride, setPromptOverride] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -129,8 +153,8 @@ export default function Home() {
       : scene;
     drawScene(ctx, shown);
     if (live && selected) drawLayer(ctx, { ...selected, path: live.points });
-    else if (mode === "video") drawStartSprites(ctx, scene, timing);
-  }, [scene, selectedId, selected, mode, timing, playing]);
+    else if (isVideo) drawStartSprites(ctx, scene, timing);
+  }, [scene, selectedId, selected, isVideo, timing, playing]);
 
   useEffect(redraw, [redraw]);
 
@@ -205,6 +229,33 @@ export default function Home() {
   const patchRun = (started: number, patch: Partial<Run>) =>
     setRuns((rs) => rs.map((r) => (r.started === started ? { ...r, ...patch } : r)));
 
+  // Restore runs from disk after a page reload (generation continues on the server),
+  // and poll while any restored run is still generating.
+  const restoredPending = runs.some((r) => r.restored && r.status === "generating");
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const res = await fetch("/api/runs").catch(() => null);
+      if (!res?.ok || cancelled) return;
+      const { runs: saved } = (await res.json()) as { runs: RunSummary[] };
+      setRuns((current) => {
+        const byId = new Map(current.filter((r) => r.runId).map((r) => [r.runId, r]));
+        const next = current.map((r) => {
+          const s = r.restored && saved.find((x) => x.runId === r.runId);
+          return s ? { ...r, ...fromSummary(s) } : r;
+        });
+        for (const s of saved) if (!byId.has(s.runId)) next.push(fromSummary(s));
+        return next.sort((a, b) => b.started - a.started);
+      });
+    };
+    load();
+    const timer = restoredPending ? setInterval(load, 10_000) : undefined;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [restoredPending]);
+
   // Negative prompts are only supported by some models (Veo), so they narrow routing.
   const negativeActive = useNegative && mode === "first";
 
@@ -254,7 +305,7 @@ export default function Home() {
 
   // Render the guide frames (video mode only), deterministically and faster than real time.
   const renderFrames = async (): Promise<Blob[] | undefined> => {
-    if (mode !== "video") return undefined;
+    if (!isVideo) return undefined;
     setBusyRendering(true);
     try {
       return await renderGuideFrames(scene, { durationSec: duration, timing });
@@ -278,7 +329,7 @@ export default function Home() {
 
   const [route, setRoute] = useState<string | null>(null);
   const checkRoute = async () => {
-    setRoute(mode === "video" ? "rendering guide…" : "checking…");
+    setRoute(isVideo ? "rendering guide…" : "checking…");
     try {
       const frames = await renderFrames();
       setRoute("checking…");
@@ -293,7 +344,7 @@ export default function Home() {
     const guide = flatten(scene, true);
     const started = Date.now();
     const run: Run = {
-      status: mode === "video" ? "rendering" : "planning",
+      status: isVideo ? "rendering" : "planning",
       guide,
       mode,
       quality,
@@ -422,7 +473,7 @@ export default function Home() {
                 ))}
               </select>
             </label>
-            {mode === "video" && (
+            {isVideo && (
               <label>
                 Motion timing
                 <select value={timing} onChange={(e) => setTiming(e.target.value as Timing)}>
@@ -455,7 +506,7 @@ export default function Home() {
             <button type="button" disabled={!canGenerate || busyRendering} onClick={checkRoute}>
               Check route (free)
             </button>
-            {mode === "video" && (
+            {isVideo && (
               <button type="button" disabled={!canGenerate || playing} onClick={previewGuide}>
                 {playing ? "Playing…" : "Preview motion"}
               </button>
@@ -535,7 +586,7 @@ export default function Home() {
                   placeholder="motion details, e.g. wings flapping fast"
                   onChange={(e) => updateLayer(l.id, { secondary: e.target.value })}
                 />
-                {mode === "video" && (
+                {isVideo && (
                   <div className={styles.spriteRow}>
                     <select
                       aria-label="Sprite"
