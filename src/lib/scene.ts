@@ -15,8 +15,8 @@ export type Layer = {
   // Guide-video sprite (v1): a stand-in emoji that moves along the path.
   sprite: string;
   spriteSize: number; // px at canvas resolution
-  orient: "upright" | "follow"; // upright + mirror, or rotate with the path
-  flip: boolean; // sprite natively faces right (default assumption: faces left)
+  orient: "follow" | "upright"; // align with the path, or stay upright (mirror only)
+  heading: number; // direction the sprite faces in its image, screen degrees (-90 = up)
 };
 
 export type AspectRatio = "16:9" | "9:16";

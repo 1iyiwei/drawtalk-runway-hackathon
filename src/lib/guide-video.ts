@@ -10,9 +10,42 @@ import { CANVAS_SIZE, drawBackground, type Layer, type Point, type Scene } from 
 //   drawn     replay the speed at which the stroke was drawn
 export type Timing = "eased" | "constant" | "drawn";
 
-// Stand-in sprites (emoji render with alpha on canvas). Most animal/vehicle emoji
-// face left, which is the assumed native facing unless the layer sets `flip`.
-export const SPRITES = ["🦋", "🐦", "🐝", "🐞", "🐟", "🐈", "🐕", "🐎", "🚗", "✈️", "🚀", "⚽", "🍂", "🎈"];
+// Stand-in sprites (emoji render with alpha on canvas), each with its native heading:
+// the direction it faces in its image, in screen degrees (0 = right, 90 = down,
+// -90 = up, 180 = left), as drawn by Apple Color Emoji. Horizontal headings are
+// treated as side views (see drawSprite).
+export const SPRITES: { emoji: string; heading: number }[] = [
+  { emoji: "🦋", heading: -90 }, // top view, head up
+  { emoji: "🐝", heading: 180 }, // side view
+  { emoji: "🐦", heading: 180 },
+  { emoji: "🐞", heading: -90 },
+  { emoji: "🐟", heading: 180 },
+  { emoji: "🐈", heading: 180 },
+  { emoji: "🐕", heading: 180 },
+  { emoji: "🐎", heading: 180 },
+  { emoji: "🚗", heading: 180 },
+  { emoji: "✈️", heading: -45 }, // pointing up-right
+  { emoji: "🚀", heading: -45 },
+  { emoji: "⚽", heading: -90 },
+  { emoji: "🍂", heading: -90 },
+  { emoji: "🎈", heading: -90 },
+];
+
+export function defaultHeading(emoji: string): number {
+  return SPRITES.find((s) => s.emoji === emoji)?.heading ?? -90;
+}
+
+// Heading choices for the "faces" selector.
+export const HEADINGS: { deg: number; label: string }[] = [
+  { deg: -90, label: "↑ up" },
+  { deg: -45, label: "↗ up-right" },
+  { deg: 0, label: "→ right" },
+  { deg: 45, label: "↘ down-right" },
+  { deg: 90, label: "↓ down" },
+  { deg: 135, label: "↙ down-left" },
+  { deg: 180, label: "← left" },
+  { deg: -135, label: "↖ up-left" },
+];
 
 const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 
@@ -90,17 +123,30 @@ export function poseAt(track: Track, u: number, timing: Timing): Pose {
 
 // ---------------------------------------------------------------- drawing
 
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a)); // to (-pi, pi]
+
 export function drawSprite(ctx: CanvasRenderingContext2D, layer: Layer, pose: Pose) {
-  const nativeRight = layer.flip; // default assumption: sprite faces left
+  // Direction the sprite faces in its image (layers from older sessions lack a heading).
+  const headingDeg = Number.isFinite(layer.heading) ? layer.heading : defaultHeading(layer.sprite);
+  const native = (headingDeg * Math.PI) / 180;
+  // Side views (facing left/right) mirror instead of turning upside down.
+  const sideView = Math.abs(Math.cos(native)) > 0.9;
+  const facesRight = Math.cos(native) > 0;
   ctx.save();
   ctx.translate(pose.x, pose.y);
   if (layer.orient === "follow") {
-    // Mirror so the sprite faces +x, then rotate with the path (can go upside down).
-    ctx.rotate(pose.angle);
-    ctx.scale(nativeRight ? 1 : -1, 1);
-  } else {
-    // Upright: only mirror to face the direction of travel.
-    ctx.scale(pose.movingRight === nativeRight ? 1 : -1, 1);
+    if (sideView) {
+      // Face the direction of travel and tilt with the path, never upside down.
+      const movingRight = Math.cos(pose.angle) >= 0;
+      ctx.rotate(wrap(movingRight ? pose.angle : pose.angle - Math.PI));
+      if (movingRight !== facesRight) ctx.scale(-1, 1);
+    } else {
+      // Top views rotate freely: turn the native heading onto the path tangent.
+      ctx.rotate(wrap(pose.angle - native));
+    }
+  } else if (sideView && pose.movingRight !== facesRight) {
+    // Upright: only mirror side views to face the direction of travel.
+    ctx.scale(-1, 1);
   }
   ctx.font = `${layer.spriteSize}px ${EMOJI_FONT}`;
   ctx.textAlign = "center";

@@ -21,8 +21,10 @@ import {
   type Scene,
 } from "@/lib/scene";
 import {
+  defaultHeading,
   drawStartSprites,
   GUIDE_FPS,
+  HEADINGS,
   playGuide,
   renderGuideFrames,
   SPRITES,
@@ -68,10 +70,10 @@ function newLayer(layers: Layer[]): Layer {
     path: [],
     description: "",
     secondary: "",
-    sprite: SPRITES[layers.length % SPRITES.length],
+    sprite: SPRITES[layers.length % SPRITES.length].emoji,
+    heading: SPRITES[layers.length % SPRITES.length].heading,
     spriteSize: 96,
-    orient: "upright",
-    flip: false,
+    orient: "follow",
   };
 }
 
@@ -538,11 +540,13 @@ export default function Home() {
                     <select
                       aria-label="Sprite"
                       value={l.sprite}
-                      onChange={(e) => updateLayer(l.id, { sprite: e.target.value })}
+                      onChange={(e) =>
+                        updateLayer(l.id, { sprite: e.target.value, heading: defaultHeading(e.target.value) })
+                      }
                     >
-                      {SPRITES.map((e) => (
-                        <option key={e} value={e}>
-                          {e}
+                      {SPRITES.map(({ emoji }) => (
+                        <option key={emoji} value={emoji}>
+                          {emoji}
                         </option>
                       ))}
                     </select>
@@ -561,16 +565,21 @@ export default function Home() {
                       value={l.orient}
                       onChange={(e) => updateLayer(l.id, { orient: e.target.value as Layer["orient"] })}
                     >
-                      <option value="upright">upright</option>
                       <option value="follow">follow path</option>
+                      <option value="upright">upright</option>
                     </select>
-                    <label className={styles.check} title="Sprite image faces right">
-                      <input
-                        type="checkbox"
-                        checked={l.flip}
-                        onChange={(e) => updateLayer(l.id, { flip: e.target.checked })}
-                      />
-                      flip
+                    <label className={styles.inline} title="Direction the sprite faces in its image">
+                      faces
+                      <select
+                        value={Number.isFinite(l.heading) ? l.heading : defaultHeading(l.sprite)}
+                        onChange={(e) => updateLayer(l.id, { heading: Number(e.target.value) })}
+                      >
+                        {HEADINGS.map((h) => (
+                          <option key={h.deg} value={h.deg}>
+                            {h.label}
+                          </option>
+                        ))}
+                      </select>
                     </label>
                   </div>
                 )}
