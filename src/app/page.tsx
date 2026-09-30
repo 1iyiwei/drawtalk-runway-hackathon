@@ -9,6 +9,7 @@ import {
   buildPrompt,
   CANVAS_SIZE,
   colorName,
+  DEFAULT_ZOOM,
   drawLayer,
   drawScene,
   flatten,
@@ -164,8 +165,10 @@ export default function Home() {
 
   useEffect(redraw, [redraw]);
 
+  // Canvas coordinates of a pointer event, or null if the canvas has no layout size.
   const toCanvas = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
+    if (!(rect.width > 0 && rect.height > 0)) return null;
     return {
       x: ((e.clientX - rect.left) / rect.width) * w,
       y: ((e.clientY - rect.top) / rect.height) * h,
@@ -174,8 +177,9 @@ export default function Home() {
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!selected || playing) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
     const p = toCanvas(e);
+    if (!p) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
     drawingRef.current = { points: [{ ...p, t: 0 }], start: performance.now() };
     redraw();
   };
@@ -184,6 +188,7 @@ export default function Home() {
     const live = drawingRef.current;
     if (!live) return;
     const p = toCanvas(e);
+    if (!p) return;
     const last = live.points[live.points.length - 1];
     if ((p.x - last.x) ** 2 + (p.y - last.y) ** 2 < 4) return; // skip sub-2px jitter
     live.points.push({ ...p, t: Math.round(performance.now() - live.start) });
@@ -210,6 +215,24 @@ export default function Home() {
     setSelectedId(l.id);
   };
 
+  // One camera layer: its path is where the view center travels.
+  const hasCamera = layers.some((l) => l.type === "camera");
+  const addCamera = () => {
+    const l: Layer = {
+      ...newLayer(layers),
+      name: "Camera",
+      type: "camera",
+      width: 6,
+      sprite: "",
+      flap: 0,
+      bob: 0,
+      wobble: 0,
+      zoom: [...DEFAULT_ZOOM],
+    };
+    setLayers([...layers, l]);
+    setSelectedId(l.id);
+  };
+
   const deleteLayer = (id: string) => {
     const rest = layers.filter((l) => l.id !== id);
     const next = rest.length ? rest : [newLayer([])];
@@ -217,14 +240,61 @@ export default function Home() {
     if (id === selectedId) setSelectedId(next[0].id);
   };
 
-  const loadBackground = (file: File | undefined) => {
-    if (!file) return;
+  const applyBackground = (src: string) => {
     const img = new Image();
     img.onload = () => {
       setBackground(img);
       setBgLum(backgroundLuminance({ ...scene, background: img }));
     };
-    img.src = URL.createObjectURL(file);
+    img.src = src;
+  };
+
+  const loadBackground = (file: File | undefined) => {
+    if (file) applyBackground(URL.createObjectURL(file));
+  };
+
+  // Generate a background image from a prompt (Model Router, image modality).
+  const [bgPrompt, setBgPrompt] = useState<string | null>(null); // null = use scene text
+  const [bgStatus, setBgStatus] = useState<{
+    busy: boolean;
+    text: string;
+    started?: number;
+    taskStatus?: RunProgress["taskStatus"];
+    progress?: number;
+  } | null>(null);
+  const generateBackground = async () => {
+    const promptText = (bgPrompt ?? sceneText).trim();
+    if (!promptText) return;
+    const started = Date.now();
+    setBgStatus({ busy: true, text: "Generating background…", started });
+    // Poll Runway task progress while the request runs.
+    const jobId = `bg-${started}-${Math.random().toString(36).slice(2, 8)}`;
+    const poll = setInterval(async () => {
+      const r = await fetch(`/api/background/progress?job=${jobId}`).catch(() => null);
+      if (!r?.ok) return;
+      const p = (await r.json()) as RunProgress;
+      setBgStatus((b) =>
+        b?.busy && b.started === started
+          ? { ...b, taskStatus: p.taskStatus ?? b.taskStatus, progress: p.progress ?? b.progress }
+          : b,
+      );
+    }, 2500);
+    try {
+      const res = await fetch("/api/background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: promptText, aspectRatio: aspect, quality, jobId }),
+      }).finally(() => clearInterval(poll));
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Background generation failed");
+      applyBackground(body.dataUrl);
+      setBgStatus({
+        busy: false,
+        text: `✓ ${body.model ?? "generated"}${body.credits !== undefined ? ` · ~${body.credits} credits` : ""}`,
+      });
+    } catch (e) {
+      setBgStatus({ busy: false, text: `✕ ${e instanceof Error ? e.message : String(e)}` });
+    }
   };
 
   // ---------------------------------------------------------------- generate
@@ -291,7 +361,8 @@ export default function Home() {
   }, [generatingIds]);
 
   // Tick the elapsed-time display while any run is in progress.
-  const anyActive = runs.some((r) => r.status !== "done" && r.status !== "error");
+  const anyActive =
+    runs.some((r) => r.status !== "done" && r.status !== "error") || !!bgStatus?.busy;
   useEffect(() => {
     if (!anyActive) return;
     const tick = () => setNow(Date.now());
@@ -522,7 +593,7 @@ export default function Home() {
             </label>
             {isVideo && (
               <label>
-                Motion timing
+                Sprite timing
                 <select value={timing} onChange={(e) => setTiming(e.target.value as Timing)}>
                   <option value="eased">Ease in/out</option>
                   <option value="constant">Constant speed</option>
@@ -575,6 +646,38 @@ export default function Home() {
               </select>
             </label>
           </div>
+          <label className={styles.field}>
+            Background prompt
+            <textarea
+              rows={2}
+              value={bgPrompt ?? sceneText}
+              onChange={(e) => setBgPrompt(e.target.value)}
+              placeholder="e.g. a sunlit flower garden, wide shot"
+            />
+          </label>
+          <div className={styles.bgRow}>
+            <button
+              type="button"
+              disabled={bgStatus?.busy || !(bgPrompt ?? sceneText).trim()}
+              onClick={generateBackground}
+              title={`Uses the ${quality === "final" ? "Final (2k)" : "Preview (1k)"} router`}
+            >
+              {bgStatus?.busy ? "Generating…" : "Generate background"}
+            </button>
+            {bgPrompt !== null && (
+              <button type="button" className={styles.link} onClick={() => setBgPrompt(null)}>
+                use scene text
+              </button>
+            )}
+          </div>
+          {bgStatus?.busy ? (
+            <ProgressBar
+              {...taskProgress(bgStatus.taskStatus, bgStatus.progress, "Generating background")}
+              elapsed={Math.max(0, Math.round((now - (bgStatus.started ?? now)) / 1000))}
+            />
+          ) : (
+            bgStatus && <p className={styles.hint}>{bgStatus.text}</p>
+          )}
           <div className={styles.bgRow}>
             <label className={styles.fileBtn}>
               Load background
@@ -594,10 +697,20 @@ export default function Home() {
           </div>
 
           <div className={styles.rowBetween}>
-            <h2>Motion layers</h2>
-            <button type="button" onClick={addLayer}>
-              + Layer
-            </button>
+            <h2>Layers</h2>
+            <span>
+              <button type="button" onClick={addLayer}>
+                + Layer
+              </button>{" "}
+              <button
+                type="button"
+                onClick={addCamera}
+                disabled={hasCamera}
+                title={hasCamera ? "There is already a camera layer" : "Draw where the camera looks"}
+              >
+                + Camera
+              </button>
+            </span>
           </div>
           <ul className={styles.layers}>
             {layers.map((l) => (
@@ -624,16 +737,58 @@ export default function Home() {
                 <input
                   className={styles.desc}
                   value={l.description}
-                  placeholder="what moves along it, e.g. a butterfly flying"
+                  placeholder={
+                    l.type === "camera"
+                      ? "camera style, e.g. slow cinematic dolly"
+                      : "what moves along it, e.g. a butterfly flying"
+                  }
                   onChange={(e) => updateLayer(l.id, { description: e.target.value })}
                 />
-                <input
-                  className={styles.desc}
-                  value={l.secondary}
-                  placeholder="motion details, e.g. wings flapping fast"
-                  onChange={(e) => updateLayer(l.id, { secondary: e.target.value })}
-                />
-                {isVideo && (
+                {l.type === "camera" ? (
+                  <div className={styles.spriteRow}>
+                    {([0, 1] as const).map((i) => (
+                      <label
+                        key={i}
+                        className={styles.inline}
+                        title="Zoom into the background (1 = whole image); room to pan"
+                      >
+                        zoom {i === 0 ? "start" : "end"}
+                        <input
+                          type="range"
+                          min={1}
+                          max={3}
+                          step={0.1}
+                          value={(l.zoom ?? DEFAULT_ZOOM)[i]}
+                          onChange={(e) => {
+                            const zoom: [number, number] = [...(l.zoom ?? DEFAULT_ZOOM)];
+                            zoom[i] = Number(e.target.value);
+                            updateLayer(l.id, { zoom });
+                          }}
+                        />
+                        <span className={styles.value}>{(l.zoom ?? DEFAULT_ZOOM)[i].toFixed(1)}×</span>
+                      </label>
+                    ))}
+                    <label className={styles.inline} title="Camera speed along its path">
+                      timing
+                      <select
+                        value={l.timing ?? "eased"}
+                        onChange={(e) => updateLayer(l.id, { timing: e.target.value as Timing })}
+                      >
+                        <option value="eased">ease in/out</option>
+                        <option value="constant">constant</option>
+                        <option value="drawn">drawing speed</option>
+                      </select>
+                    </label>
+                  </div>
+                ) : (
+                  <input
+                    className={styles.desc}
+                    value={l.secondary}
+                    placeholder="motion details, e.g. wings flapping fast"
+                    onChange={(e) => updateLayer(l.id, { secondary: e.target.value })}
+                  />
+                )}
+                {isVideo && l.type !== "camera" && (
                   <div className={styles.spriteRow}>
                     <select
                       aria-label="Sprite"
@@ -706,6 +861,23 @@ export default function Home() {
                         </span>
                       </label>
                     ))}
+                    {hasCamera && (
+                      <label
+                        className={styles.inline}
+                        title="How much this layer moves with the camera: 1 = with the background, >1 = closer (moves more)"
+                      >
+                        parallax
+                        <input
+                          type="range"
+                          min={0}
+                          max={2}
+                          step={0.1}
+                          value={l.parallax ?? 1}
+                          onChange={(e) => updateLayer(l.id, { parallax: Number(e.target.value) })}
+                        />
+                        <span className={styles.value}>{(l.parallax ?? 1).toFixed(1)}</span>
+                      </label>
+                    )}
                   </div>
                 )}
                 <div className={styles.swatches}>
@@ -789,21 +961,34 @@ export default function Home() {
   );
 }
 
+// Label and fraction (null = indeterminate) for a Runway task's status.
+function taskProgress(
+  taskStatus: RunProgress["taskStatus"],
+  progress: number | undefined,
+  verb: string,
+): { label: string; fraction: number | null } {
+  if (taskStatus === "RUNNING") {
+    const f = progress ?? 0;
+    return { label: `${verb} ${Math.round(f * 100)}%`, fraction: f };
+  }
+  if (taskStatus === "THROTTLED") return { label: "Queued (rate limit), will start automatically…", fraction: null };
+  if (taskStatus === "PENDING") return { label: "Waiting for a GPU…", fraction: null };
+  if (taskStatus === "SUCCEEDED") return { label: "Downloading…", fraction: 1 };
+  return { label: "Submitting…", fraction: null };
+}
+
 function RunProgressBar({ run, now }: { run: Run; now: number }) {
   const elapsed = Math.max(0, Math.round((now - run.started) / 1000));
-  let label: string;
-  let fraction: number | null = null; // null = indeterminate
-  if (run.status === "rendering") label = "Rendering guide frames…";
-  else if (run.status === "planning") label = "Uploading & routing…";
-  else if (run.taskStatus === "RUNNING") {
-    fraction = run.progress ?? 0;
-    label = `Generating ${Math.round(fraction * 100)}%`;
-  } else if (run.taskStatus === "THROTTLED") label = "Queued (rate limit), will start automatically…";
-  else if (run.taskStatus === "PENDING") label = "Waiting for a GPU…";
-  else if (run.taskStatus === "SUCCEEDED") {
-    fraction = 1;
-    label = "Downloading output…";
-  } else label = "Submitting…";
+  const { label, fraction } =
+    run.status === "rendering"
+      ? { label: "Rendering guide frames…", fraction: null }
+      : run.status === "planning"
+        ? { label: "Uploading & routing…", fraction: null }
+        : taskProgress(run.taskStatus, run.progress, "Generating");
+  return <ProgressBar label={label} fraction={fraction} elapsed={elapsed} />;
+}
+
+function ProgressBar({ label, fraction, elapsed }: { label: string; fraction: number | null; elapsed: number }) {
   return (
     <div className={styles.progress}>
       <div className={styles.progressLabel}>

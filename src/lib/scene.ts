@@ -5,7 +5,7 @@ export type Point = { x: number; y: number; t: number }; // canvas px, ms since 
 export type Layer = {
   id: string;
   name: string;
-  type: "motion"; // later: "camera", "secondary"
+  type: "motion" | "camera"; // camera: the path is where the view center travels
   color: string; // one of PALETTE hex values
   width: number;
   visible: boolean;
@@ -21,6 +21,10 @@ export type Layer = {
   flap: number; // wing beats per second, 0 = off
   bob: number; // px perpendicular to the path
   wobble: number; // degrees of rotation jitter
+  parallax?: number; // motion layers under a moving camera: 1 = moves with the background,
+  //                    > 1 = closer to the camera (moves more), < 1 = farther
+  zoom?: [number, number]; // camera layers: zoom at start and end (1 = whole background)
+  timing?: "eased" | "constant" | "drawn"; // camera layers: own timing (default eased)
 };
 
 export type AspectRatio = "16:9" | "9:16";
@@ -108,7 +112,9 @@ export function drawLayer(ctx: CanvasRenderingContext2D, layer: Layer) {
   ctx.lineWidth = layer.width;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  if (layer.type === "camera") ctx.setLineDash([layer.width * 3, layer.width * 2.5]);
   strokePath(ctx, pts);
+  ctx.setLineDash([]);
 
   // Start dot
   ctx.beginPath();
@@ -158,12 +164,70 @@ function secondaryMotion(l: Layer): string {
   return l.secondary.trim() || "natural, lifelike motion";
 }
 
+/** The camera layer, if it has a visible path. */
+export function cameraLayer(scene: Scene): Layer | undefined {
+  return scene.layers.find((l) => l.type === "camera" && l.visible && l.path.length >= 2);
+}
+
+export const DEFAULT_ZOOM: [number, number] = [1.5, 1.5];
+
+/** "the camera pans right and pushes in" — from the camera path and zoom. */
+export function describeCamera(camera: Layer, aspect: AspectRatio): string {
+  const { w, h } = CANVAS_SIZE[aspect];
+  const pts = camera.path;
+  const a = pts[0];
+  const b = pts[pts.length - 1];
+  const dx = (b.x - a.x) / w;
+  const dy = (b.y - a.y) / h;
+  const [z0, z1] = camera.zoom ?? DEFAULT_ZOOM;
+  let length = 0;
+  for (let i = 1; i < pts.length; i++) length += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  const chord = Math.hypot(b.x - a.x, b.y - a.y);
+
+  const moves: string[] = [];
+  if (Math.abs(dx) > 0.06) moves.push(`pans ${dx > 0 ? "right" : "left"}`);
+  if (Math.abs(dy) > 0.06) moves.push(`tilts ${dy > 0 ? "down" : "up"}`);
+  if (z1 / z0 > 1.08) moves.push("pushes in");
+  else if (z0 / z1 > 1.08) moves.push("pulls back");
+  let text = moves.length
+    ? `the camera smoothly ${moves.length > 1 ? `${moves.slice(0, -1).join(", ")} and ${moves[moves.length - 1]}` : moves[0]}`
+    : "the camera drifts slightly";
+  if (chord > 0 && length > 1.3 * chord) text += " along a curved path";
+  const style = camera.description.trim();
+  return style ? `${text} (${style})` : text;
+}
+
 export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
-  const drawn = scene.layers.filter((l) => l.visible && l.path.length >= 2);
+  const camera = cameraLayer(scene);
+  const drawn = scene.layers.filter((l) => l.type !== "camera" && l.visible && l.path.length >= 2);
   const parts: string[] = [];
   if (scene.sceneText.trim()) parts.push(scene.sceneText.trim().replace(/\.?$/, "."));
-  if (!drawn.length) return parts.join(" ");
+  if (!drawn.length && !camera) return parts.join(" ");
   const who = (l: Layer) => (l.description || l.name).trim();
+  const cameraText = camera ? capitalize(describeCamera(camera, scene.aspect)) : "";
+
+  if (!drawn.length && camera) {
+    // Camera move only: no subjects to follow.
+    const c = colorName(camera.color);
+    if (mode === "video") {
+      parts.push(
+        `The input video is a camera-motion guide over this scene. ${cameraText}, exactly as in the input video, with natural, lifelike detail and subtle ambient motion.`,
+      );
+    } else if (mode === "video-reference") {
+      parts.push(
+        `The reference video shows only the camera movement. ${cameraText}, as in the reference video, with natural, lifelike detail and subtle ambient motion.`,
+      );
+    } else if (mode === "first") {
+      parts.push(
+        `${cameraText}, following the dashed ${c} path. The dashed line, dot and arrow are only a camera guide: they are not part of the scene, disappear immediately, and never appear in the output video.`,
+      );
+    } else {
+      parts.push(
+        `The reference image is only a camera diagram: the dashed ${c} line shows the camera's path, from its dot to its arrow. ${cameraText}. The output video shows only the real scene: no drawn lines, dots, arrows or other diagram marks appear in any frame.`,
+      );
+    }
+    return parts.join(" ");
+  }
 
   if (mode === "video") {
     // Video-to-video: keep the paths from the guide, but not its stiff icon motion.
@@ -174,8 +238,9 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
       );
     }
     parts.push(
-      "Replace every icon with the real, fully animated subject (never a flat icon sliding across the frame), with natural lighting and detail. Keep the camera still.",
+      "Replace every icon with the real, fully animated subject (never a flat icon sliding across the frame), with natural lighting and detail.",
     );
+    parts.push(camera ? `${cameraText}, exactly as in the input video.` : "Keep the camera still.");
     return parts.join(" ");
   }
 
@@ -190,8 +255,9 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
       );
     }
     parts.push(
-      "The output video shows only the real, fully animated subjects in the real scene: no icons, emoji, lines or other guide marks. Keep the camera still.",
+      "The output video shows only the real, fully animated subjects in the real scene: no icons, emoji, lines or other guide marks.",
     );
+    parts.push(camera ? `${cameraText}, as in the reference video.` : "Keep the camera still.");
     return parts.join(" ");
   }
 
@@ -203,6 +269,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
         `${capitalize(who(l))}, following the ${c} path from the ${c} dot to the ${c} arrow, with ${secondaryMotion(l)}.`,
       );
     }
+    if (camera) parts.push(`${cameraText}, following the dashed ${colorName(camera.color)} path.`);
     parts.push(
       "The colored lines, dots and arrows are only motion guides: they are not part of the scene, disappear immediately, and never appear in the output video.",
     );
@@ -219,6 +286,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
       `${capitalize(who(l))}, moving along the route of the ${c} line from its dot to its arrow, with ${secondaryMotion(l)}.`,
     );
   }
+  if (camera) parts.push(`${cameraText}, following the dashed ${colorName(camera.color)} line.`);
   parts.push(
     "The output video shows only the real scene: no drawn lines, paths, dots, arrows or other diagram marks appear in any frame.",
   );
