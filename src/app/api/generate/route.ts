@@ -1,5 +1,5 @@
 import { TaskFailedError } from "@runwayml/sdk";
-import type { SavedRequest } from "@/lib/api-types";
+import type { RunStatus, SavedRequest } from "@/lib/api-types";
 import { getRunway } from "@/lib/runway";
 import { readRunJson, writeRunFile } from "@/lib/runs";
 
@@ -19,11 +19,18 @@ export async function POST(request: Request) {
     return Response.json({ error: `Unknown run ${runId}.` }, { status: 404 });
   }
 
+  // status.json lets a reloaded page find runs that are still generating.
+  const started = Date.now();
+  const setStatus = (status: RunStatus) =>
+    writeRunFile(runId, "status.json", JSON.stringify(status, null, 2));
+  await setStatus({ status: "generating", started });
+
   try {
     const client = getRunway();
-    const task = await client.generate.video
-      .create({ configId: saved.configId, input: saved.input })
-      .waitForTaskOutput();
+    const pending = client.generate.video.create({ configId: saved.configId, input: saved.input });
+    // Record the task id as soon as it exists, for progress polling.
+    pending.then(({ id }) => setStatus({ status: "generating", started, taskId: id })).catch(() => {});
+    const task = await pending.waitForTaskOutput();
 
     const output = task.output ?? [];
     let local: string | null = null;
@@ -36,12 +43,19 @@ export async function POST(request: Request) {
       }
     }
     await writeRunFile(runId, "task.json", JSON.stringify(task, null, 2));
+    await setStatus({ status: "done", started, finished: Date.now(), taskId: task.id, output: output[0] });
     return Response.json({ runId, taskId: task.id, output, local });
   } catch (error) {
     if (error instanceof TaskFailedError) {
       const details = error.taskDetails;
       await writeRunFile(runId, "task.json", JSON.stringify(details, null, 2));
       const failed = details.status === "FAILED" ? details : null;
+      await setStatus({
+        status: "error",
+        started,
+        finished: Date.now(),
+        error: failed?.failure ?? `Generation ${details.status.toLowerCase()}.`,
+      });
       return Response.json(
         {
           runId,
@@ -53,6 +67,7 @@ export async function POST(request: Request) {
       );
     }
     const message = error instanceof Error ? error.message : String(error);
+    await setStatus({ status: "error", started, finished: Date.now(), error: message });
     return Response.json({ runId, error: message }, { status: 500 });
   }
 }

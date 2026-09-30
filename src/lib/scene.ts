@@ -11,6 +11,16 @@ export type Layer = {
   visible: boolean;
   path: Point[]; // one path per layer; redrawing replaces it
   description: string; // "a butterfly flutters"
+  secondary: string; // secondary motion, e.g. "wings flapping fast" (prompt only)
+  // Guide-video sprite (v1): a stand-in emoji that moves along the path.
+  sprite: string;
+  spriteSize: number; // px at canvas resolution
+  orient: "follow" | "upright"; // align with the path, or stay upright (mirror only)
+  heading: number; // direction the sprite faces in its image, screen degrees (-90 = up)
+  // Motion modifiers drawn into the guide (secondary motion); see guide-video.ts.
+  flap: number; // wing beats per second, 0 = off
+  bob: number; // px perpendicular to the path
+  wobble: number; // degrees of rotation jitter
 };
 
 export type AspectRatio = "16:9" | "9:16";
@@ -140,22 +150,78 @@ export function flatten(scene: Scene, withPaths = true): string {
 export const GUIDE_NEGATIVE =
   "drawn lines, colored paths, arrows, dots, markers, annotations, sketch strokes, text";
 
-export function buildPrompt(scene: Scene): string {
+// How the drawing conditions the model; mirrors Mode in api-types.
+export type PromptMode = "first" | "reference" | "clean-first" | "video" | "video-reference";
+
+// Secondary motion for a layer ("wings flapping fast"), or a generic default.
+function secondaryMotion(l: Layer): string {
+  return l.secondary.trim() || "natural, lifelike motion";
+}
+
+export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
   const drawn = scene.layers.filter((l) => l.visible && l.path.length >= 2);
   const parts: string[] = [];
   if (scene.sceneText.trim()) parts.push(scene.sceneText.trim().replace(/\.?$/, "."));
+  if (!drawn.length) return parts.join(" ");
+  const who = (l: Layer) => (l.description || l.name).trim();
+
+  if (mode === "video") {
+    // Video-to-video: keep the paths from the guide, but not its stiff icon motion.
+    parts.push("The input video is only a rough motion guide made of flat icons.");
+    for (const l of drawn) {
+      parts.push(
+        `The ${l.sprite} icon becomes ${who(l)}, keeping its path and timing, with ${secondaryMotion(l)}.`,
+      );
+    }
+    parts.push(
+      "Replace every icon with the real, fully animated subject (never a flat icon sliding across the frame), with natural lighting and detail. Keep the camera still.",
+    );
+    return parts.join(" ");
+  }
+
+  if (mode === "video-reference") {
+    // Guide video as a reference only: looser, so the model animates more freely.
+    parts.push(
+      "The reference video is only a rough motion guide made of flat icons: it shows where and when each subject moves.",
+    );
+    for (const l of drawn) {
+      parts.push(
+        `The ${l.sprite} icon marks ${who(l)}, which travels the same route with the same timing, with ${secondaryMotion(l)}.`,
+      );
+    }
+    parts.push(
+      "The output video shows only the real, fully animated subjects in the real scene: no icons, emoji, lines or other guide marks. Keep the camera still.",
+    );
+    return parts.join(" ");
+  }
+
+  if (mode === "first") {
+    // The drawing is the first frame.
+    for (const l of drawn) {
+      const c = colorName(l.color);
+      parts.push(
+        `${capitalize(who(l))}, following the ${c} path from the ${c} dot to the ${c} arrow, with ${secondaryMotion(l)}.`,
+      );
+    }
+    parts.push(
+      "The colored lines, dots and arrows are only motion guides: they are not part of the scene, disappear immediately, and never appear in the output video.",
+    );
+    return parts.join(" ");
+  }
+
+  // reference / clean-first: the drawing is a reference image, not a frame.
+  parts.push(
+    "The reference image is only a motion diagram: each colored line shows where a subject travels, starting at its dot and ending at its arrow.",
+  );
   for (const l of drawn) {
     const c = colorName(l.color);
-    const who = (l.description || l.name).trim();
     parts.push(
-      `${capitalize(who)}, following the ${c} path from the ${c} dot to the ${c} arrow.`,
+      `${capitalize(who(l))}, moving along the route of the ${c} line from its dot to its arrow, with ${secondaryMotion(l)}.`,
     );
   }
-  if (drawn.length) {
-    parts.push(
-      "The colored lines, dots and arrows are only motion guides: they are not part of the scene, disappear immediately, and never appear in the video.",
-    );
-  }
+  parts.push(
+    "The output video shows only the real scene: no drawn lines, paths, dots, arrows or other diagram marks appear in any frame.",
+  );
   return parts.join(" ");
 }
 

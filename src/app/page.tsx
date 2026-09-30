@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
-import type { Mode } from "@/lib/api-types";
+import { type Mode, type RunProgress, type RunSummary, VIDEO_MODES } from "@/lib/api-types";
 import {
   type AspectRatio,
   backgroundLuminance,
@@ -20,13 +20,27 @@ import {
   type Point,
   type Scene,
 } from "@/lib/scene";
+import {
+  defaultHeading,
+  defaultMotion,
+  MAX_FLAP_HZ,
+  motionOf,
+  drawStartSprites,
+  GUIDE_FPS,
+  HEADINGS,
+  playGuide,
+  renderGuideFrames,
+  SPRITES,
+  type Timing,
+} from "@/lib/guide-video";
 
 type Quality = "preview" | "final";
 
 type Run = {
   runId?: string;
-  status: "planning" | "generating" | "done" | "error";
+  status: "rendering" | "planning" | "generating" | "done" | "error";
   guide: string; // data URL thumbnail
+  guideVideo?: string; // server URL of the encoded guide video (video mode)
   mode: Mode;
   quality: Quality;
   prompt: string;
@@ -37,13 +51,39 @@ type Run = {
   error?: string;
   started: number;
   finished?: number;
+  restored?: boolean; // loaded from disk after a page reload
+  taskStatus?: RunProgress["taskStatus"]; // Runway task status while generating
+  progress?: number; // 0-1
 };
 
 const MODES: { value: Mode; label: string }[] = [
+  { value: "video", label: "Guide video: sprites move along paths" },
+  { value: "video-reference", label: "Guide video as reference (looser motion)" },
   { value: "first", label: "Guide image as first frame" },
   { value: "reference", label: "Guide image as reference" },
   { value: "clean-first", label: "Clean background first + guide reference" },
 ];
+
+function fromSummary(s: RunSummary): Run {
+  const url = (file: string) => `/api/runs/${s.runId}/${file}`;
+  return {
+    runId: s.runId,
+    status: s.status,
+    guide: url("guide.png"),
+    guideVideo: s.hasGuideVideo ? url("guide.mp4") : undefined,
+    mode: s.mode ?? "first",
+    quality: s.quality ?? "preview",
+    prompt: s.prompt ?? "",
+    model: s.model,
+    credits: s.credits,
+    output: s.output,
+    local: s.hasOutput ? url("output.mp4") : null,
+    error: s.error,
+    started: s.started,
+    finished: s.finished,
+    restored: true,
+  };
+}
 
 let layerCounter = 0;
 function newLayer(layers: Layer[]): Layer {
@@ -57,6 +97,12 @@ function newLayer(layers: Layer[]): Layer {
     visible: true,
     path: [],
     description: "",
+    secondary: "",
+    sprite: SPRITES[layers.length % SPRITES.length].emoji,
+    heading: SPRITES[layers.length % SPRITES.length].heading,
+    ...SPRITES[layers.length % SPRITES.length].motion,
+    spriteSize: 96,
+    orient: "follow",
   };
 }
 
@@ -66,12 +112,23 @@ export default function Home() {
   const [sceneText, setSceneText] = useState("A beautiful garden with flowers on a sunny day");
   const [layers, setLayers] = useState<Layer[]>(() => {
     const first = newLayer([]);
-    return [{ ...first, name: "Butterfly", description: "a butterfly flying" }];
+    return [
+      {
+        ...first,
+        name: "Butterfly",
+        description: "a butterfly flying",
+        secondary: "wings flapping and fluttering",
+      },
+    ];
   });
   const [selectedId, setSelectedId] = useState<string>(() => layers[0].id);
-  const [mode, setMode] = useState<Mode>("first");
+  const [mode, setMode] = useState<Mode>("video");
+  const isVideo = VIDEO_MODES.includes(mode);
+  const [timing, setTiming] = useState<Timing>("drawn");
+  const [busyRendering, setBusyRendering] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [quality, setQuality] = useState<Quality>("preview");
-  const [duration, setDuration] = useState(6);
+  const [duration, setDuration] = useState(4);
   const [useNegative, setUseNegative] = useState(true);
   const [promptOverride, setPromptOverride] = useState<string | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -84,7 +141,7 @@ export default function Home() {
     [aspect, background, sceneText, layers],
   );
   const selected = layers.find((l) => l.id === selectedId) ?? layers[0];
-  const autoPrompt = useMemo(() => buildPrompt(scene), [scene]);
+  const autoPrompt = useMemo(() => buildPrompt(scene, mode), [scene, mode]);
   const prompt = promptOverride ?? autoPrompt;
   const { w, h } = CANVAS_SIZE[aspect];
 
@@ -95,14 +152,15 @@ export default function Home() {
 
   const redraw = useCallback(() => {
     const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
+    if (!ctx || playing) return;
     const live = drawingRef.current;
     const shown = live
       ? { ...scene, layers: scene.layers.map((l) => (l.id === selectedId ? { ...l, path: [] } : l)) }
       : scene;
     drawScene(ctx, shown);
     if (live && selected) drawLayer(ctx, { ...selected, path: live.points });
-  }, [scene, selectedId, selected]);
+    else if (isVideo) drawStartSprites(ctx, scene, timing);
+  }, [scene, selectedId, selected, isVideo, timing, playing]);
 
   useEffect(redraw, [redraw]);
 
@@ -115,7 +173,7 @@ export default function Home() {
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!selected) return;
+    if (!selected || playing) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = toCanvas(e);
     drawingRef.current = { points: [{ ...p, t: 0 }], start: performance.now() };
@@ -177,42 +235,152 @@ export default function Home() {
   const patchRun = (started: number, patch: Partial<Run>) =>
     setRuns((rs) => rs.map((r) => (r.started === started ? { ...r, ...patch } : r)));
 
+  // Restore runs from disk after a page reload (generation continues on the server),
+  // and poll while any restored run is still generating.
+  const restoredPending = runs.some((r) => r.restored && r.status === "generating");
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const res = await fetch("/api/runs").catch(() => null);
+      if (!res?.ok || cancelled) return;
+      const { runs: saved } = (await res.json()) as { runs: RunSummary[] };
+      setRuns((current) => {
+        const byId = new Map(current.filter((r) => r.runId).map((r) => [r.runId, r]));
+        const next = current.map((r) => {
+          const s = r.restored && saved.find((x) => x.runId === r.runId);
+          return s ? { ...r, ...fromSummary(s) } : r;
+        });
+        for (const s of saved) if (!byId.has(s.runId)) next.push(fromSummary(s));
+        return next.sort((a, b) => b.started - a.started);
+      });
+    };
+    load();
+    const timer = restoredPending ? setInterval(load, 10_000) : undefined;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [restoredPending]);
+
+  // Poll Runway task progress for generating runs (Runway updates at most every ~5 s).
+  const generatingIds = runs
+    .filter((r) => r.status === "generating" && r.runId)
+    .map((r) => r.runId!)
+    .join(",");
+  const [now, setNow] = useState(0); // clock for elapsed time, ticks while generating
+  useEffect(() => {
+    if (!generatingIds) return;
+    const ids = generatingIds.split(",");
+    const poll = async () => {
+      for (const id of ids) {
+        const res = await fetch(`/api/runs/${id}/progress`).catch(() => null);
+        if (!res?.ok) continue;
+        const p = (await res.json()) as RunProgress;
+        setRuns((rs) =>
+          rs.map((r) =>
+            r.runId === id && r.status === "generating"
+              ? { ...r, taskStatus: p.taskStatus ?? r.taskStatus, progress: p.progress ?? r.progress }
+              : r,
+          ),
+        );
+      }
+    };
+    poll();
+    const pollTimer = setInterval(poll, 5000);
+    return () => clearInterval(pollTimer);
+  }, [generatingIds]);
+
+  // Tick the elapsed-time display while any run is in progress.
+  const anyActive = runs.some((r) => r.status !== "done" && r.status !== "error");
+  useEffect(() => {
+    if (!anyActive) return;
+    const tick = () => setNow(Date.now());
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [anyActive]);
+
   // Negative prompts are only supported by some models (Veo), so they narrow routing.
   const negativeActive = useNegative && mode === "first";
 
   // Upload + free router dry run; saves the request as a run on the server.
-  const plan = async (guide: string) => {
-    const res = await fetch("/api/plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quality,
-        mode,
-        aspectRatio: aspect,
-        duration,
-        prompt,
-        negativePrompt: negativeActive ? GUIDE_NEGATIVE : undefined,
-        guide,
-        clean: background ? flatten(scene, false) : undefined,
-        scene: {
-          aspect,
-          size: CANVAS_SIZE[aspect],
-          sceneText,
-          hasBackground: !!background,
-          layers: layers.map((l) => ({ ...l, colorName: colorName(l.color) })),
-        },
-      }),
+  const plan = async (guide: string, frames?: Blob[]) => {
+    const payload = JSON.stringify({
+      quality,
+      mode,
+      aspectRatio: aspect,
+      duration,
+      prompt,
+      negativePrompt: negativeActive ? GUIDE_NEGATIVE : undefined,
+      guide,
+      clean: background ? flatten(scene, false) : undefined,
+      scene: {
+        timing,
+        fps: GUIDE_FPS,
+        aspect,
+        size: CANVAS_SIZE[aspect],
+        sceneText,
+        hasBackground: !!background,
+        layers: layers.map((l) => ({ ...l, colorName: colorName(l.color) })),
+      },
     });
+    let init: RequestInit;
+    if (frames) {
+      // Video mode: multipart with the guide frames; the server encodes the MP4.
+      const form = new FormData();
+      form.append("payload", payload);
+      form.append("fps", String(GUIDE_FPS));
+      frames.forEach((f, i) => form.append("frames", f, `${String(i + 1).padStart(5, "0")}.jpg`));
+      init = { method: "POST", body: form };
+    } else {
+      init = { method: "POST", headers: { "Content-Type": "application/json" }, body: payload };
+    }
+    const res = await fetch("/api/plan", init);
     const body = await res.json();
-    if (!res.ok) throw new Error(body.error ?? "Routing failed");
-    return body as { runId: string; routing?: { model: string; estimatedCost?: { credits: number } } };
+    if (!res.ok) {
+      throw Object.assign(new Error(body.error ?? "Routing failed"), { guideVideo: body.guideVideo });
+    }
+    return body as {
+      runId: string;
+      guideVideo?: string;
+      routing?: { model: string; estimatedCost?: { credits: number } };
+    };
+  };
+
+  // Render the guide frames (video mode only), deterministically and faster than real time.
+  const renderFrames = async (): Promise<Blob[] | undefined> => {
+    if (!isVideo) return undefined;
+    setBusyRendering(true);
+    try {
+      return await renderGuideFrames(scene, { durationSec: duration, timing });
+    } finally {
+      setBusyRendering(false);
+    }
+  };
+
+  // Live preview of the guide animation on the editor canvas.
+  const stopPreviewRef = useRef<(() => void) | null>(null);
+  const previewGuide = () => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    stopPreviewRef.current?.();
+    setPlaying(true);
+    stopPreviewRef.current = playGuide(ctx, scene, { durationSec: duration, timing }, () => {
+      stopPreviewRef.current = null;
+      setPlaying(false);
+    });
   };
 
   const [route, setRoute] = useState<string | null>(null);
   const checkRoute = async () => {
-    setRoute("checking…");
+    setRoute(isVideo ? "rendering guide…" : "checking…");
     try {
-      const p = await plan(flatten(scene, true));
+      const frames = await renderFrames();
+      setRoute("checking…");
+      const p = await plan(flatten(scene, true), frames);
       setRoute(`→ ${p.routing?.model} · ~${p.routing?.estimatedCost?.credits} credits`);
     } catch (e) {
       setRoute(`✕ ${e instanceof Error ? e.message : String(e)}`);
@@ -222,13 +390,23 @@ export default function Home() {
   const generate = async () => {
     const guide = flatten(scene, true);
     const started = Date.now();
-    const run: Run = { status: "planning", guide, mode, quality, prompt, started };
+    const run: Run = {
+      status: isVideo ? "rendering" : "planning",
+      guide,
+      mode,
+      quality,
+      prompt,
+      started,
+    };
     setRuns((rs) => [run, ...rs]);
 
     try {
-      const planned = await plan(guide);
+      const frames = await renderFrames();
+      patchRun(started, { status: "planning" });
+      const planned = await plan(guide, frames);
       patchRun(started, {
         runId: planned.runId,
+        guideVideo: planned.guideVideo,
         status: "generating",
         model: planned.routing?.model,
         credits: planned.routing?.estimatedCost?.credits,
@@ -250,7 +428,9 @@ export default function Home() {
         finished: Date.now(),
       });
     } catch (e) {
+      const guideVideo = (e as { guideVideo?: string }).guideVideo;
       patchRun(started, {
+        ...(guideVideo ? { guideVideo } : {}),
         status: "error",
         error: e instanceof Error ? e.message : String(e),
         finished: Date.now(),
@@ -340,6 +520,16 @@ export default function Home() {
                 ))}
               </select>
             </label>
+            {isVideo && (
+              <label>
+                Motion timing
+                <select value={timing} onChange={(e) => setTiming(e.target.value as Timing)}>
+                  <option value="eased">Ease in/out</option>
+                  <option value="constant">Constant speed</option>
+                  <option value="drawn">Drawing speed</option>
+                </select>
+              </label>
+            )}
             <label className={styles.check}>
               <input
                 type="checkbox"
@@ -352,15 +542,26 @@ export default function Home() {
           </div>
 
           <div className={styles.actions}>
-            <button type="button" className={styles.primary} disabled={!canGenerate} onClick={generate}>
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={!canGenerate || busyRendering}
+              onClick={generate}
+            >
               Generate
             </button>
-            <button type="button" disabled={!canGenerate} onClick={checkRoute}>
+            <button type="button" disabled={!canGenerate || busyRendering} onClick={checkRoute}>
               Check route (free)
             </button>
+            {isVideo && (
+              <button type="button" disabled={!canGenerate || playing} onClick={previewGuide}>
+                {playing ? "Playing…" : "Preview motion"}
+              </button>
+            )}
             {route && <span className={styles.hint}>{route}</span>}
           </div>
           {!drawnLayers.length && <p className={styles.hint}>Draw a path first.</p>}
+
         </section>
 
         <aside className={styles.panel}>
@@ -426,6 +627,87 @@ export default function Home() {
                   placeholder="what moves along it, e.g. a butterfly flying"
                   onChange={(e) => updateLayer(l.id, { description: e.target.value })}
                 />
+                <input
+                  className={styles.desc}
+                  value={l.secondary}
+                  placeholder="motion details, e.g. wings flapping fast"
+                  onChange={(e) => updateLayer(l.id, { secondary: e.target.value })}
+                />
+                {isVideo && (
+                  <div className={styles.spriteRow}>
+                    <select
+                      aria-label="Sprite"
+                      value={l.sprite}
+                      onChange={(e) =>
+                        updateLayer(l.id, {
+                          sprite: e.target.value,
+                          heading: defaultHeading(e.target.value),
+                          ...defaultMotion(e.target.value),
+                        })
+                      }
+                    >
+                      {SPRITES.map(({ emoji }) => (
+                        <option key={emoji} value={emoji}>
+                          {emoji}
+                        </option>
+                      ))}
+                    </select>
+                    <label className={styles.inline} title="Sprite size">
+                      size
+                      <input
+                        type="range"
+                        min={32}
+                        max={240}
+                        value={l.spriteSize}
+                        onChange={(e) => updateLayer(l.id, { spriteSize: Number(e.target.value) })}
+                      />
+                    </label>
+                    <select
+                      aria-label="Orientation"
+                      value={l.orient}
+                      onChange={(e) => updateLayer(l.id, { orient: e.target.value as Layer["orient"] })}
+                    >
+                      <option value="follow">follow path</option>
+                      <option value="upright">upright</option>
+                    </select>
+                    <label className={styles.inline} title="Direction the sprite faces in its image">
+                      faces
+                      <select
+                        value={Number.isFinite(l.heading) ? l.heading : defaultHeading(l.sprite)}
+                        onChange={(e) => updateLayer(l.id, { heading: Number(e.target.value) })}
+                      >
+                        {HEADINGS.map((h) => (
+                          <option key={h.deg} value={h.deg}>
+                            {h.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {(
+                      [
+                        ["flap", "Hz", 0, MAX_FLAP_HZ, 0.5, "wing beats per second"],
+                        ["bob", "px", 0, 40, 1, "up/down drift across the path"],
+                        ["wobble", "°", 0, 30, 1, "rotation jitter"],
+                      ] as const
+                    ).map(([key, unit, min, max, step, title]) => (
+                      <label key={key} className={styles.inline} title={title}>
+                        {key}
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={motionOf(l)[key]}
+                          onChange={(e) => updateLayer(l.id, { [key]: Number(e.target.value) })}
+                        />
+                        <span className={styles.value}>
+                          {motionOf(l)[key]}
+                          {unit}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
                 <div className={styles.swatches}>
                   {PALETTE.map((c) => (
                     <button
@@ -473,15 +755,18 @@ export default function Home() {
           <h2>Runs</h2>
           {runs.map((r) => (
             <article key={r.started} className={styles.run}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={r.guide} alt="Guide image" className={styles.runGuide} />
+              {r.guideVideo ? (
+                <video className={styles.runGuide} src={r.guideVideo} controls autoPlay loop muted playsInline />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={r.guide} alt="Guide image" className={styles.runGuide} />
+              )}
               <div className={styles.runOut}>
                 {r.status === "done" && (r.local || r.output) ? (
                   <video src={r.local ?? r.output} controls autoPlay loop muted playsInline />
                 ) : (
                   <div className={styles.placeholder}>
-                    {r.status === "planning" && "Routing…"}
-                    {r.status === "generating" && "Generating… (a minute or two)"}
+                    {r.status !== "error" && <RunProgressBar run={r} now={now} />}
                     {r.status === "error" && <span className={styles.warn}>{r.error}</span>}
                   </div>
                 )}
@@ -501,5 +786,42 @@ export default function Home() {
         </section>
       )}
     </main>
+  );
+}
+
+function RunProgressBar({ run, now }: { run: Run; now: number }) {
+  const elapsed = Math.max(0, Math.round((now - run.started) / 1000));
+  let label: string;
+  let fraction: number | null = null; // null = indeterminate
+  if (run.status === "rendering") label = "Rendering guide frames…";
+  else if (run.status === "planning") label = "Uploading & routing…";
+  else if (run.taskStatus === "RUNNING") {
+    fraction = run.progress ?? 0;
+    label = `Generating ${Math.round(fraction * 100)}%`;
+  } else if (run.taskStatus === "THROTTLED") label = "Queued (rate limit), will start automatically…";
+  else if (run.taskStatus === "PENDING") label = "Waiting for a GPU…";
+  else if (run.taskStatus === "SUCCEEDED") {
+    fraction = 1;
+    label = "Downloading output…";
+  } else label = "Submitting…";
+  return (
+    <div className={styles.progress}>
+      <div className={styles.progressLabel}>
+        <span>{label}</span>
+        <span>{elapsed}s</span>
+      </div>
+      <div
+        className={styles.progressTrack}
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
+      >
+        <div
+          className={fraction === null ? styles.progressIndeterminate : styles.progressFill}
+          style={fraction === null ? undefined : { width: `${Math.max(2, fraction * 100)}%` }}
+        />
+      </div>
+    </div>
   );
 }

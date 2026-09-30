@@ -292,3 +292,68 @@
   margin: 4px 0 0;
   opacity: 0.8;
 }
+
+.spriteRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.spriteRow select {
+  font: inherit;
+  padding: 2px 4px;
+}
+
+.value {
+  min-width: 3.5em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.progress {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progressLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.progressTrack {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.2);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: #1e63e9;
+  border-radius: 4px;
+  transition: width 0.8s ease;
+}
+
+.progressIndeterminate {
+  position: absolute;
+  height: 100%;
+  width: 30%;
+  background: #1e63e9;
+  border-radius: 4px;
+  animation: slide 1.4s ease-in-out infinite;
+}
+
+@keyframes slide {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
