@@ -7,7 +7,7 @@ import path from "node:path";
 export const RUNS_DIR = path.join(process.cwd(), "runs");
 
 const ID_RE = /^[0-9]{8}-[0-9]{6}-[a-z0-9]{4}$/;
-const FILE_RE = /^[a-z0-9_-]+\.(png|json|mp4)$/;
+const FILE_RE = /^[a-z0-9_-]+\.(png|jpg|json|mp4)$/;
 
 export function newRunId() {
   const d = new Date();
@@ -31,8 +31,13 @@ export async function readRunJson<T>(id: string, file: string): Promise<T> {
   return JSON.parse(await readFile(runPath(id, file), "utf8")) as T;
 }
 
-export function dataUrlToBuffer(dataUrl: string): Buffer {
-  const m = /^data:image\/png;base64,(.+)$/.exec(dataUrl);
-  if (!m) throw new Error("Expected a PNG data URL");
-  return Buffer.from(m[1], "base64");
+const DATA_URL_TYPES = ["image/png"];
+
+/** Decode a base64 image data URL. */
+export function parseDataUrl(dataUrl: string): { buf: Buffer; type: string } {
+  const m = /^data:([a-z]+\/[a-z0-9.+-]+)(?:;[^,;]*)*;base64,(.+)$/.exec(dataUrl);
+  if (!m || !DATA_URL_TYPES.includes(m[1])) {
+    throw new Error(`Expected a data URL of type ${DATA_URL_TYPES.join(", ")}`);
+  }
+  return { buf: Buffer.from(m[2], "base64"), type: m[1] };
 }

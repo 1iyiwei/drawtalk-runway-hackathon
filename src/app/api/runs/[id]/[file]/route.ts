@@ -5,6 +5,7 @@ const TYPES: Record<string, string> = {
   png: "image/png",
   json: "application/json",
   mp4: "video/mp4",
+  jpg: "image/jpeg",
 };
 
 // Serve saved run files (guide.png, output.mp4, request.json, ...).
