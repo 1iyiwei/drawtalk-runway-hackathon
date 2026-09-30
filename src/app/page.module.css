@@ -1,59 +1,294 @@
 .main {
-  max-width: 720px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 48px 16px;
+  padding: 24px 16px 64px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.sub {
-  opacity: 0.7;
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  gap: 20px;
   font-size: 14px;
 }
 
-.form textarea,
-.form input,
-.form select,
-.form button {
-  font: inherit;
-  padding: 8px;
+.header h1 {
+  font-size: 24px;
+  margin: 0;
 }
 
-.row {
+.header p {
+  opacity: 0.7;
+  margin: 4px 0 0;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.canvasCol {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.preview {
-  max-height: 200px;
-  width: auto;
+.canvasWrap {
+  width: 100%;
+  max-height: 75vh;
+  margin: 0 auto;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.hint {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field textarea,
+.controls select,
+.desc,
+.layerName {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: inherit;
+  color: inherit;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.controls .check,
+.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.primary {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #1e63e9;
+  color: #fff;
+  cursor: pointer;
   align-self: flex-start;
 }
 
-.error {
-  color: #c62828;
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
 }
 
-.result video {
+.actions .primary {
+  align-self: auto;
+}
+
+.primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: #1e63e9;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel h2,
+.runs h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.bgRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.fileBtn {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.fileBtn input {
+  display: none;
+}
+
+.rowBetween {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.layers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.layer,
+.layerSelected {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.layerSelected {
+  border-color: #1e63e9;
+  box-shadow: 0 0 0 1px #1e63e9;
+}
+
+.layerName {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.desc {
   width: 100%;
+}
+
+.swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.swatch,
+.swatchOn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #999;
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatchOn {
+  outline: 2px solid #1e63e9;
+  outline-offset: 2px;
+}
+
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.warn {
+  color: #c62828;
+  margin: 0;
+  font-size: 13px;
+}
+
+.runs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #ddd;
   border-radius: 8px;
 }
 
-.result figcaption {
+@media (max-width: 700px) {
+  .run {
+    grid-template-columns: 1fr;
+  }
+}
+
+.runGuide,
+.runOut video {
+  width: 100%;
+  border-radius: 6px;
+  display: block;
+}
+
+.placeholder {
+  height: 100%;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+  padding: 12px;
+  text-align: center;
+}
+
+.runMeta {
+  grid-column: 1 / -1;
   font-size: 13px;
-  opacity: 0.7;
+}
+
+.runMeta details p {
+  margin: 4px 0 0;
+  opacity: 0.8;
 }

@@ -1,68 +1,50 @@
 import { TaskFailedError } from "@runwayml/sdk";
-import {
-  GEN45_DURATION,
-  GEN45_PROMPT_MAX,
-  GEN45_RATIOS,
-  type Gen45Ratio,
-  getRunway,
-} from "@/lib/runway";
+import type { SavedRequest } from "@/lib/api-types";
+import { getRunway } from "@/lib/runway";
+import { readRunJson, writeRunFile } from "@/lib/runs";
 
 // Generation takes seconds to minutes; allow a long-running request.
-export const maxDuration = 300;
+export const maxDuration = 600;
 
-// POST multipart/form-data: prompt, ratio, duration, optional image (first frame).
-// Text only -> /v1/text_to_video, with image -> /v1/image_to_video (model gen4.5).
+// POST { runId } — runs the request saved by /api/plan through the Model Router,
+// waits for the task, and saves the output video into the run folder.
 export async function POST(request: Request) {
-  const form = await request.formData();
-  const prompt = String(form.get("prompt") ?? "").trim();
-  const ratio = String(form.get("ratio") ?? "1280:720") as Gen45Ratio;
-  const duration = Number(form.get("duration") ?? 5);
-  const image = form.get("image");
+  const { runId } = (await request.json().catch(() => ({}))) as { runId?: string };
+  if (!runId) return Response.json({ error: "Missing runId." }, { status: 400 });
 
-  if (!prompt || prompt.length > GEN45_PROMPT_MAX) {
-    return Response.json(
-      { error: `Prompt must be 1-${GEN45_PROMPT_MAX} characters.` },
-      { status: 400 },
-    );
-  }
-  if (!GEN45_RATIOS.includes(ratio)) {
-    return Response.json({ error: `Unsupported ratio ${ratio}.` }, { status: 400 });
-  }
-  if (
-    !Number.isInteger(duration) ||
-    duration < GEN45_DURATION.min ||
-    duration > GEN45_DURATION.max
-  ) {
-    return Response.json(
-      { error: `Duration must be ${GEN45_DURATION.min}-${GEN45_DURATION.max} seconds.` },
-      { status: 400 },
-    );
+  let saved: SavedRequest;
+  try {
+    saved = await readRunJson<SavedRequest>(runId, "request.json");
+  } catch {
+    return Response.json({ error: `Unknown run ${runId}.` }, { status: 404 });
   }
 
   try {
     const client = getRunway();
+    const task = await client.generate.video
+      .create({ configId: saved.configId, input: saved.input })
+      .waitForTaskOutput();
 
-    let task;
-    if (image instanceof File && image.size > 0) {
-      // Browser file -> ephemeral upload -> runway:// URI
-      const { uri } = await client.uploads.createEphemeral({ file: image });
-      task = await client.imageToVideo
-        .create({ model: "gen4.5", promptText: prompt, promptImage: uri, ratio, duration })
-        .waitForTaskOutput();
-    } else {
-      task = await client.textToVideo
-        .create({ model: "gen4.5", promptText: prompt, ratio, duration })
-        .waitForTaskOutput();
+    const output = task.output ?? [];
+    let local: string | null = null;
+    if (output[0]) {
+      // Output URLs expire in 24-48h; keep a local copy.
+      const res = await fetch(output[0]);
+      if (res.ok) {
+        await writeRunFile(runId, "output.mp4", new Uint8Array(await res.arrayBuffer()));
+        local = `/api/runs/${runId}/output.mp4`;
+      }
     }
-
-    // Output URLs expire in 24-48h; download anything worth keeping.
-    return Response.json({ taskId: task.id, output: task.output ?? [] });
+    await writeRunFile(runId, "task.json", JSON.stringify(task, null, 2));
+    return Response.json({ runId, taskId: task.id, output, local });
   } catch (error) {
     if (error instanceof TaskFailedError) {
       const details = error.taskDetails;
+      await writeRunFile(runId, "task.json", JSON.stringify(details, null, 2));
       const failed = details.status === "FAILED" ? details : null;
       return Response.json(
         {
+          runId,
           error: failed?.failure ?? `Generation ${details.status.toLowerCase()}.`,
           failureCode: failed?.failureCode,
           taskId: details.id,
@@ -71,6 +53,6 @@ export async function POST(request: Request) {
       );
     }
     const message = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json({ runId, error: message }, { status: 500 });
   }
 }
