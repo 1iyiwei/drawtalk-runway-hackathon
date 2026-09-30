@@ -54,7 +54,11 @@ Developer Portal (**Model Routers**): `drawtalk-preview` (optimize for latency) 
    **Preview motion** plays the animation on the canvas.
    **+ Camera** adds a camera layer: draw where the center of the view travels, and set
    the zoom at start and end (e.g. 1.5× → 2× pushes in). The camera has its own timing,
-   ease in/out by default, so moves start and stop smoothly. In guide-video modes the editor
+   ease in/out by default, so moves start and stop smoothly.
+   **3D perspective** (Canvas panel) adds a ground plane with a **horizon** line (drag the
+   slider to match the background): sprites shrink as their paths approach the horizon,
+   and the camera path becomes a **dolly** — drawing up toward the horizon moves the
+   camera forward into the scene, drawing sideways trucks it. In guide-video modes the editor
    outlines the camera's start (solid) and end (dashed) views, and each motion layer gets
    a **parallax** slider (1 = moves with the background, >1 = closer to the camera).
 3. Edit the scene description. The prompt is generated from the scene and the layers; you
@@ -111,7 +115,10 @@ draw paths (layers) + describe  ──►  guide  ──►  Model Router  ─�
    start and end zoom and kept inside the image (so panning never shows an edge); motion
    layers get **multiplane parallax** (a layer with parallax p moves p times as much as
    the background). The camera move is also described in the prompt ("the camera
-   smoothly pans right, tilts down and pushes in"). Frames are rendered one by one (not screen-recorded, so tab throttling
+   smoothly pans right, tilts down and pushes in"). **3D perspective** models a ground
+   plane: a point's distance below the horizon is inversely proportional to its depth,
+   so sprite size scales with it, and a dolly camera is approximated by scaling the view
+   about the vanishing point above the camera (up the frame = forward). Frames are rendered one by one (not screen-recorded, so tab throttling
    can't drop frames) and encoded server-side by ffmpeg into an exact 24 fps H.264 MP4.
 2. **Semantic (prompt).** The prompt is generated per mode from the scene description
    and each layer's subject and *motion details* (secondary motion such as "wings

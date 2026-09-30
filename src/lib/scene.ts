@@ -34,7 +34,30 @@ export type Scene = {
   background: HTMLImageElement | null;
   sceneText: string; // overall description, e.g. "a beautiful garden"
   layers: Layer[];
+  // 3D perspective: a ground plane with a horizon line. Sprites shrink as they move
+  // toward the horizon, and the camera path becomes a dolly (up = forward).
+  depth3d?: boolean;
+  horizon?: number; // horizon height as a fraction of the frame (0 = top)
 };
+
+export const DEFAULT_HORIZON = 0.4;
+
+export function horizonY(scene: Scene): number {
+  return (scene.horizon ?? DEFAULT_HORIZON) * CANVAS_SIZE[scene.aspect].h;
+}
+
+/**
+ * Ground-plane depth ratio between screen heights y and y0: a point's distance below
+ * the horizon is inversely proportional to its depth, so on-screen size scales with it.
+ * > 1 when y is closer to the viewer than y0. Points near or above the horizon are
+ * clamped so the ratio stays finite.
+ */
+export function depthRatio(scene: Scene, y: number, y0: number): number {
+  const yh = horizonY(scene);
+  const min = 0.04 * CANVAS_SIZE[scene.aspect].h;
+  const r = Math.max(y - yh, min) / Math.max(y0 - yh, min);
+  return Math.min(4, Math.max(0.15, r));
+}
 
 export const CANVAS_SIZE: Record<AspectRatio, { w: number; h: number }> = {
   "16:9": { w: 1280, h: 720 },
@@ -172,8 +195,8 @@ export function cameraLayer(scene: Scene): Layer | undefined {
 export const DEFAULT_ZOOM: [number, number] = [1.5, 1.5];
 
 /** "the camera pans right and pushes in" — from the camera path and zoom. */
-export function describeCamera(camera: Layer, aspect: AspectRatio): string {
-  const { w, h } = CANVAS_SIZE[aspect];
+export function describeCamera(camera: Layer, scene: Scene): string {
+  const { w, h } = CANVAS_SIZE[scene.aspect];
   const pts = camera.path;
   const a = pts[0];
   const b = pts[pts.length - 1];
@@ -185,8 +208,16 @@ export function describeCamera(camera: Layer, aspect: AspectRatio): string {
   const chord = Math.hypot(b.x - a.x, b.y - a.y);
 
   const moves: string[] = [];
-  if (Math.abs(dx) > 0.06) moves.push(`pans ${dx > 0 ? "right" : "left"}`);
-  if (Math.abs(dy) > 0.06) moves.push(`tilts ${dy > 0 ? "down" : "up"}`);
+  if (scene.depth3d) {
+    // Dolly: the path is a route on the ground; up the frame = forward into the scene.
+    if (Math.abs(dy) > 0.04) {
+      moves.push(dy < 0 ? "moves forward into the scene (dolly in)" : "moves backward (dolly out)");
+    }
+    if (Math.abs(dx) > 0.06) moves.push(`trucks ${dx > 0 ? "right" : "left"}`);
+  } else {
+    if (Math.abs(dx) > 0.06) moves.push(`pans ${dx > 0 ? "right" : "left"}`);
+    if (Math.abs(dy) > 0.06) moves.push(`tilts ${dy > 0 ? "down" : "up"}`);
+  }
   if (z1 / z0 > 1.08) moves.push("pushes in");
   else if (z0 / z1 > 1.08) moves.push("pulls back");
   let text = moves.length
@@ -204,7 +235,12 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
   if (scene.sceneText.trim()) parts.push(scene.sceneText.trim().replace(/\.?$/, "."));
   if (!drawn.length && !camera) return parts.join(" ");
   const who = (l: Layer) => (l.description || l.name).trim();
-  const cameraText = camera ? capitalize(describeCamera(camera, scene.aspect)) : "";
+  const cameraText = camera ? capitalize(describeCamera(camera, scene)) : "";
+  // 3D: describe the depth cue once, after the subjects.
+  const depthText =
+    scene.depth3d && drawn.length
+      ? "The scene has deep perspective: subjects moving up the frame travel away into the distance and get smaller, and subjects moving down come closer."
+      : "";
 
   if (!drawn.length && camera) {
     // Camera move only: no subjects to follow.
@@ -240,6 +276,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
     parts.push(
       "Replace every icon with the real, fully animated subject (never a flat icon sliding across the frame), with natural lighting and detail.",
     );
+    if (depthText) parts.push(depthText);
     parts.push(camera ? `${cameraText}, exactly as in the input video.` : "Keep the camera still.");
     return parts.join(" ");
   }
@@ -257,6 +294,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
     parts.push(
       "The output video shows only the real, fully animated subjects in the real scene: no icons, emoji, lines or other guide marks.",
     );
+    if (depthText) parts.push(depthText);
     parts.push(camera ? `${cameraText}, as in the reference video.` : "Keep the camera still.");
     return parts.join(" ");
   }
@@ -269,6 +307,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
         `${capitalize(who(l))}, following the ${c} path from the ${c} dot to the ${c} arrow, with ${secondaryMotion(l)}.`,
       );
     }
+    if (depthText) parts.push(depthText);
     if (camera) parts.push(`${cameraText}, following the dashed ${colorName(camera.color)} path.`);
     parts.push(
       "The colored lines, dots and arrows are only motion guides: they are not part of the scene, disappear immediately, and never appear in the output video.",
@@ -286,6 +325,7 @@ export function buildPrompt(scene: Scene, mode: PromptMode = "first"): string {
       `${capitalize(who(l))}, moving along the route of the ${c} line from its dot to its arrow, with ${secondaryMotion(l)}.`,
     );
   }
+  if (depthText) parts.push(depthText);
   if (camera) parts.push(`${cameraText}, following the dashed ${colorName(camera.color)} line.`);
   parts.push(
     "The output video shows only the real scene: no drawn lines, paths, dots, arrows or other diagram marks appear in any frame.",

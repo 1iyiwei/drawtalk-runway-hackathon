@@ -9,9 +9,11 @@ import {
   buildPrompt,
   CANVAS_SIZE,
   colorName,
+  DEFAULT_HORIZON,
   DEFAULT_ZOOM,
   drawLayer,
   drawScene,
+  horizonY,
   flatten,
   GUIDE_NEGATIVE,
   type Layer,
@@ -24,6 +26,7 @@ import {
 import {
   defaultHeading,
   defaultMotion,
+  defaultOrient,
   MAX_FLAP_HZ,
   motionOf,
   drawStartSprites,
@@ -65,6 +68,68 @@ const MODES: { value: Mode; label: string }[] = [
   { value: "clean-first", label: "Clean background first + guide reference" },
 ];
 
+// ---------------------------------------------------------------- editor persistence
+
+type SavedEditor = {
+  aspect: AspectRatio;
+  sceneText: string;
+  layers: Layer[];
+  mode: Mode;
+  quality: Quality;
+  duration: number;
+  timing: Timing;
+  useNegative: boolean;
+  promptOverride: string | null;
+  bgPrompt: string | null;
+  depth3d: boolean;
+  horizon: number;
+  bgSrc: string | null;
+};
+const EDITOR_KEY = "drawtalk-editor-v1";
+
+function loadEditor(): SavedEditor | null {
+  try {
+    const raw = localStorage.getItem(EDITOR_KEY);
+    return raw ? (JSON.parse(raw) as SavedEditor) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveEditor(state: SavedEditor) {
+  try {
+    localStorage.setItem(EDITOR_KEY, JSON.stringify(state));
+  } catch {
+    // Over the storage quota (usually a large background): save without it.
+    try {
+      localStorage.setItem(EDITOR_KEY, JSON.stringify({ ...state, bgSrc: null }));
+    } catch {
+      // storage unavailable
+    }
+  }
+}
+
+// Editor overlay: dashed horizon line for 3D perspective.
+function drawHorizon(ctx: CanvasRenderingContext2D, scene: Scene) {
+  const { w } = CANVAS_SIZE[scene.aspect];
+  const y = horizonY(scene);
+  ctx.save();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([18, 12]);
+  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  ctx.moveTo(0, y);
+  ctx.lineTo(w, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.font = "600 22px system-ui, sans-serif";
+  ctx.fillText("horizon", 14, y - 10);
+  ctx.restore();
+}
+
 function fromSummary(s: RunSummary): Run {
   const url = (file: string) => `/api/runs/${s.runId}/${file}`;
   return {
@@ -103,7 +168,7 @@ function newLayer(layers: Layer[]): Layer {
     heading: SPRITES[layers.length % SPRITES.length].heading,
     ...SPRITES[layers.length % SPRITES.length].motion,
     spriteSize: 96,
-    orient: "follow",
+    orient: SPRITES[layers.length % SPRITES.length].orient ?? "follow",
   };
 }
 
@@ -137,9 +202,12 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef<{ points: Point[]; start: number } | null>(null);
 
+  // 3D perspective: ground plane with a horizon (sprites shrink toward it, camera dollies).
+  const [depth3d, setDepth3d] = useState(false);
+  const [horizon, setHorizon] = useState(DEFAULT_HORIZON);
   const scene: Scene = useMemo(
-    () => ({ aspect, background, sceneText, layers }),
-    [aspect, background, sceneText, layers],
+    () => ({ aspect, background, sceneText, layers, depth3d, horizon }),
+    [aspect, background, sceneText, layers, depth3d, horizon],
   );
   const selected = layers.find((l) => l.id === selectedId) ?? layers[0];
   const autoPrompt = useMemo(() => buildPrompt(scene, mode), [scene, mode]);
@@ -159,9 +227,10 @@ export default function Home() {
       ? { ...scene, layers: scene.layers.map((l) => (l.id === selectedId ? { ...l, path: [] } : l)) }
       : scene;
     drawScene(ctx, shown);
+    if (depth3d) drawHorizon(ctx, scene);
     if (live && selected) drawLayer(ctx, { ...selected, path: live.points });
     else if (isVideo) drawStartSprites(ctx, scene, timing);
-  }, [scene, selectedId, selected, isVideo, timing, playing]);
+  }, [scene, selectedId, selected, isVideo, timing, playing, depth3d]);
 
   useEffect(redraw, [redraw]);
 
@@ -240,21 +309,72 @@ export default function Home() {
     if (id === selectedId) setSelectedId(next[0].id);
   };
 
+  const [bgSrc, setBgSrc] = useState<string | null>(null); // data URL, for saving the editor
   const applyBackground = (src: string) => {
     const img = new Image();
     img.onload = () => {
       setBackground(img);
+      setBgSrc(src);
       setBgLum(backgroundLuminance({ ...scene, background: img }));
     };
     img.src = src;
   };
 
   const loadBackground = (file: File | undefined) => {
-    if (file) applyBackground(URL.createObjectURL(file));
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => applyBackground(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
   // Generate a background image from a prompt (Model Router, image modality).
   const [bgPrompt, setBgPrompt] = useState<string | null>(null); // null = use scene text
+
+  // Save the editor in the browser so a reload or a code hot-reload (which can reset
+  // component state) doesn't lose the drawing. The background is saved when it fits.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    // Deferred so the restore happens after hydration, outside the effect body.
+    const id = setTimeout(() => {
+      const saved = loadEditor();
+      if (saved) {
+        setAspect(saved.aspect);
+        setSceneText(saved.sceneText);
+        if (saved.layers.length) {
+          setLayers(saved.layers);
+          setSelectedId(saved.layers[0].id);
+        }
+        setMode(saved.mode);
+        setQuality(saved.quality);
+        setDuration(saved.duration);
+        setTiming(saved.timing);
+        setUseNegative(saved.useNegative);
+        setPromptOverride(saved.promptOverride);
+        setBgPrompt(saved.bgPrompt);
+        setDepth3d(saved.depth3d);
+        setHorizon(saved.horizon);
+        if (saved.bgSrc) applyBackground(saved.bgSrc);
+      }
+      setRestored(true);
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore once on mount
+  }, []);
+  useEffect(() => {
+    if (!restored) return;
+    const t = setTimeout(
+      () =>
+        saveEditor({
+          aspect, sceneText, layers, mode, quality, duration, timing, useNegative,
+          promptOverride, bgPrompt, depth3d, horizon, bgSrc,
+        }),
+      400,
+    );
+    return () => clearTimeout(t);
+  }, [
+    restored, aspect, sceneText, layers, mode, quality, duration, timing, useNegative,
+    promptOverride, bgPrompt, depth3d, horizon, bgSrc,
+  ]);
   const [bgStatus, setBgStatus] = useState<{
     busy: boolean;
     text: string;
@@ -395,6 +515,8 @@ export default function Home() {
         size: CANVAS_SIZE[aspect],
         sceneText,
         hasBackground: !!background,
+        depth3d,
+        horizon,
         layers: layers.map((l) => ({ ...l, colorName: colorName(l.color) })),
       },
     });
@@ -645,6 +767,24 @@ export default function Home() {
                 <option value="9:16">9:16 (720×1280)</option>
               </select>
             </label>
+            <label className={styles.check} title="Ground plane with a horizon: sprites shrink toward it, and the camera path becomes a dolly (up = forward)">
+              <input type="checkbox" checked={depth3d} onChange={(e) => setDepth3d(e.target.checked)} />
+              3D perspective
+            </label>
+            {depth3d && (
+              <label className={styles.inline} title="Horizon height (drag to match the background)">
+                horizon
+                <input
+                  type="range"
+                  min={0.1}
+                  max={0.9}
+                  step={0.01}
+                  value={horizon}
+                  onChange={(e) => setHorizon(Number(e.target.value))}
+                />
+                <span className={styles.value}>{Math.round(horizon * 100)}%</span>
+              </label>
+            )}
           </div>
           <label className={styles.field}>
             Background prompt
@@ -688,6 +828,7 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   setBackground(null);
+                  setBgSrc(null);
                   setBgLum(1);
                 }}
               >
@@ -797,6 +938,7 @@ export default function Home() {
                         updateLayer(l.id, {
                           sprite: e.target.value,
                           heading: defaultHeading(e.target.value),
+                          orient: defaultOrient(e.target.value),
                           ...defaultMotion(e.target.value),
                         })
                       }
