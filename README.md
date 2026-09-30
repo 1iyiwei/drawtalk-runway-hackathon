@@ -1,4 +1,4 @@
-# DrawTalk — Runway Hackathon (Sept 30, 2026)
+# DrawTalkRunway — Runway Hackathon (Sept 30, 2026)
 
 Draw motion paths, describe the scene, and generate a video that follows them, using
 [Runway Dev](https://docs.dev.runwayml.com) Model Routers. Built for the
@@ -84,10 +84,10 @@ after Runway's output URLs expire (24–48h) and double as demo backups.
 
 ## How it works
 
-**Idea.** DrawTalk (after the author's earlier work on motion brushes and draw-and-talk
+**Idea.** DrawTalkRunway (after the author's earlier work on motion brushes and draw-and-talk
 animation) lets you *direct* a video by drawing: each motion layer is a path + a subject
 + a description of how it moves. Runway's video models have no motion-path, camera-path
-or mask parameters, so DrawTalk turns the drawing into something they *do* accept.
+or mask parameters, so DrawTalkRunway turns the drawing into something they *do* accept.
 
 **Pipeline** — "guide, then stylize":
 
@@ -118,7 +118,7 @@ draw paths (layers) + describe  ──►  guide  ──►  Model Router  ─�
    flapping fast"), and states that guide marks never appear in the output video.
 3. **Generation (Runway).** Everything goes through **Model Routers** — never a
    hard-coded model: `drawtalk-preview` (optimize for latency) and `drawtalk-final`
-   (quality). The router's model-agnostic input maps directly onto DrawTalk's
+   (quality). The router's model-agnostic input maps directly onto DrawTalkRunway's
    conditioning modes (`referenceImages` role `first` / `reference`, `referenceVideos`
    role `source` / `reference`), and excludes models that can't take that input. A free
    **dry run** shows which model would run and the estimated cost before spending
@@ -141,7 +141,7 @@ development (Dev MCP connected for account access).
 | Guide video as reference + motion modifiers | `seedance2_fast` / `seedance2_5` | good | natural (bee) | none |
 
 The trade-off: the stronger the spatial conditioning, the more literally the model
-copies the guide — including its stiff motion — so DrawTalk puts secondary motion into
+copies the guide — including its stiff motion — so DrawTalkRunway puts secondary motion into
 the guide itself (motion modifiers). Next steps: upload your own sprites, outpainting
 for wider camera moves, and LLM/VLM agents for the planning and semantic roles (see
 [draw-talk.md](draw-talk.md)).

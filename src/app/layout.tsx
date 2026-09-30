@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Runway Hackathon",
+  title: "DrawTalkRunway",
   description: "Runway Dev hackathon project",
 };
 

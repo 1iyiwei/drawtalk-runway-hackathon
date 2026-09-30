@@ -514,7 +514,7 @@ export default function Home() {
   return (
     <main className={styles.main}>
       <header className={styles.header}>
-        <h1>DrawTalk</h1>
+        <h1>DrawTalkRunway</h1>
         <p>Draw motion paths, describe the scene, generate.</p>
       </header>
 
