@@ -9,8 +9,6 @@ Design notes: [draw-talk.md](draw-talk.md).
 
 [![DrawTalkRunway demo video (3 min)](https://img.youtube.com/vi/n5Zx8ZG9J1Y/hqdefault.jpg)](https://youtu.be/n5Zx8ZG9J1Y)
 
-▶ **Watch on YouTube:** https://youtu.be/n5Zx8ZG9J1Y
-
 ## Run the demo
 
 Requirements: Node.js 20+, [ffmpeg](https://ffmpeg.org) on the `PATH` (encodes the guide
