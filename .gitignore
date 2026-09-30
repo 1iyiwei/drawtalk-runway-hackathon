@@ -43,3 +43,6 @@ next-env.d.ts
 
 # saved generation runs
 /runs
+
+# generated background images
+/backgrounds

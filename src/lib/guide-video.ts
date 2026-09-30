@@ -2,7 +2,15 @@
 // and recorded in the browser. Deterministic given the scene and timing; the video
 // model then restyles it (video-to-video), so the paths are specified in every frame.
 
-import { CANVAS_SIZE, drawBackground, type Layer, type Point, type Scene } from "./scene";
+import {
+  CANVAS_SIZE,
+  cameraLayer,
+  DEFAULT_ZOOM,
+  drawBackground,
+  type Layer,
+  type Point,
+  type Scene,
+} from "./scene";
 
 // How a layer's time maps to distance along its path.
 //   eased     ease in/out over the whole duration
@@ -207,11 +215,46 @@ export function drawSprite(ctx: CanvasRenderingContext2D, layer: Layer, pose: Po
 
 function animatedLayers(scene: Scene) {
   return scene.layers
-    .filter((l) => l.visible && l.path.length >= 2)
+    .filter((l) => l.type !== "camera" && l.visible && l.path.length >= 2)
     .map((l) => ({ layer: l, track: makeTrack(l.path) }));
 }
 
-/** Draw one guide frame: clean background + every sprite at time fraction u. */
+// ---------------------------------------------------------------- camera
+
+type CameraRig = { layer: Layer; track: Track; zoom: [number, number] };
+
+function cameraRig(scene: Scene): CameraRig | null {
+  const layer = cameraLayer(scene);
+  if (!layer) return null;
+  const zoom = layer.zoom ?? DEFAULT_ZOOM;
+  return { layer, track: makeTrack(layer.path), zoom: [Math.max(1, zoom[0]), Math.max(1, zoom[1])] };
+}
+
+export type CameraView = { cx: number; cy: number; zoom: number };
+
+/**
+ * Camera at time fraction u: the view center travels along the camera path, and the
+ * zoom interpolates from start to end. The view (frame / zoom) is kept inside the
+ * background, so panning never reveals an edge.
+ */
+// The camera has its own timing (default ease in/out: a smooth start and stop), since
+// hand-drawn camera strokes are uneven; the global timing applies to sprites.
+function cameraAt(rig: CameraRig, u: number, scene: Scene): CameraView {
+  const timing: Timing = rig.layer.timing ?? "eased";
+  const { w, h } = CANVAS_SIZE[scene.aspect];
+  const p = poseAt(rig.track, u, timing);
+  const v = timing === "constant" || timing === "drawn" ? u : smoothstep(Math.min(1, Math.max(0, u)));
+  const zoom = rig.zoom[0] + (rig.zoom[1] - rig.zoom[0]) * v;
+  const hw = w / (2 * zoom);
+  const hh = h / (2 * zoom);
+  return {
+    cx: Math.min(w - hw, Math.max(hw, p.x)),
+    cy: Math.min(h - hh, Math.max(hh, p.y)),
+    zoom,
+  };
+}
+
+/** Draw one guide frame: background + every sprite at time fraction u, through the camera. */
 export function drawGuideFrame(
   ctx: CanvasRenderingContext2D,
   scene: Scene,
@@ -219,16 +262,58 @@ export function drawGuideFrame(
   u: number,
   timing: Timing,
   tSec: number,
+  rig: CameraRig | null = cameraRig(scene),
 ) {
+  const { w, h } = CANVAS_SIZE[scene.aspect];
+  ctx.save();
+  let cam: CameraView | null = null;
+  let cam0: CameraView | null = null;
+  if (rig) {
+    cam = cameraAt(rig, u, scene);
+    cam0 = cameraAt(rig, 0, scene);
+    // World -> screen: center the view on (cx, cy) at the current zoom.
+    ctx.setTransform(cam.zoom, 0, 0, cam.zoom, w / 2 - cam.zoom * cam.cx, h / 2 - cam.zoom * cam.cy);
+  }
   drawBackground(ctx, scene);
-  for (const { layer, track } of tracks) drawSprite(ctx, layer, poseAt(track, u, timing), tSec);
+  for (const { layer, track } of tracks) {
+    ctx.save();
+    if (cam && cam0) {
+      // Multiplane parallax: a layer with parallax p moves p times as much as the
+      // background as the camera travels (p = 1: fixed in the scene).
+      const p = Number.isFinite(layer.parallax) ? (layer.parallax as number) : 1;
+      ctx.translate(-(p - 1) * (cam.cx - cam0.cx), -(p - 1) * (cam.cy - cam0.cy));
+    }
+    drawSprite(ctx, layer, poseAt(track, u, timing), tSec);
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
-/** Sprites at their start positions, for the editor preview. */
+/** Editor overlay (video modes): sprites at their start and the camera's start/end views. */
 export function drawStartSprites(ctx: CanvasRenderingContext2D, scene: Scene, timing: Timing) {
   for (const { layer, track } of animatedLayers(scene)) {
     drawSprite(ctx, layer, poseAt(track, 0, timing));
   }
+  const rig = cameraRig(scene);
+  if (!rig) return;
+  const { w, h } = CANVAS_SIZE[scene.aspect];
+  ctx.save();
+  ctx.strokeStyle = rig.layer.color;
+  ctx.fillStyle = rig.layer.color;
+  ctx.lineWidth = 3;
+  ctx.font = "600 22px system-ui, sans-serif";
+  for (const [u, label, dash] of [
+    [0, "camera start", []],
+    [1, "camera end", [14, 10]],
+  ] as const) {
+    const v = cameraAt(rig, u, scene);
+    const vw = w / v.zoom;
+    const vh = h / v.zoom;
+    ctx.setLineDash(dash as unknown as number[]);
+    ctx.strokeRect(v.cx - vw / 2, v.cy - vh / 2, vw, vh);
+    ctx.fillText(label, v.cx - vw / 2 + 10, v.cy - vh / 2 + 28);
+  }
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- frames
@@ -254,10 +339,11 @@ export async function renderGuideFrames(
 ): Promise<Blob[]> {
   const { canvas, ctx } = newCanvas(scene);
   const tracks = animatedLayers(scene);
+  const rig = cameraRig(scene);
   const n = Math.round(durationSec * fps);
   const frames: Blob[] = [];
   for (let i = 0; i < n; i++) {
-    drawGuideFrame(ctx, scene, tracks, n > 1 ? i / (n - 1) : 0, timing, i / fps);
+    drawGuideFrame(ctx, scene, tracks, n > 1 ? i / (n - 1) : 0, timing, i / fps, rig);
     frames.push(
       await new Promise<Blob>((resolve, reject) =>
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/jpeg", 0.92),
@@ -275,12 +361,13 @@ export function playGuide(
   onDone: () => void,
 ): () => void {
   const tracks = animatedLayers(scene);
+  const rig = cameraRig(scene);
   const t0 = performance.now();
   let raf = 0;
   const tick = () => {
     const tSec = (performance.now() - t0) / 1000;
     const u = Math.min(1, tSec / durationSec);
-    drawGuideFrame(ctx, scene, tracks, u, timing, Math.min(tSec, durationSec));
+    drawGuideFrame(ctx, scene, tracks, u, timing, Math.min(tSec, durationSec), rig);
     if (u < 1) raf = requestAnimationFrame(tick);
     else onDone();
   };

@@ -49,9 +49,14 @@ Developer Portal (**Model Routers**): `drawtalk-preview` (optimize for latency) 
    In **Guide video** mode (the default), each layer also has a stand-in sprite (emoji),
    size, orientation (follow the path or upright), the direction the sprite faces in its
    image, and motion modifiers (**flap** Hz, **bob** px, **wobble** °) with per-sprite
-   defaults; **Motion timing** sets the
+   defaults; **Sprite timing** sets the
    speed along the path (ease in/out, constant, or your drawing speed).
    **Preview motion** plays the animation on the canvas.
+   **+ Camera** adds a camera layer: draw where the center of the view travels, and set
+   the zoom at start and end (e.g. 1.5× → 2× pushes in). The camera has its own timing,
+   ease in/out by default, so moves start and stop smoothly. In guide-video modes the editor
+   outlines the camera's start (solid) and end (dashed) views, and each motion layer gets
+   a **parallax** slider (1 = moves with the background, >1 = closer to the camera).
 3. Edit the scene description. The prompt is generated from the scene and the layers; you
    can override it.
 4. Choose the conditioning mode and router (Preview / Final), then **Check route (free)**
@@ -65,7 +70,8 @@ Conditioning modes:
 - **Guide image as first frame / as reference / clean background + reference** — the
   flattened path drawing conditions an image-to-video model (v0).
 
-Defaults: 4 s duration (fastest), motion timing = your drawing speed.
+Defaults: 4 s duration (fastest); sprite timing = your drawing speed; camera timing =
+ease in/out.
 
 Reloading the page is safe: generation continues on the server, and the page restores
 its run list from `runs/` (runs still generating update every 10 s).
@@ -100,7 +106,12 @@ draw paths (layers) + describe  ──►  guide  ──►  Model Router  ─�
    upside down. **Motion modifiers** add secondary motion to the guide itself — flap
    (a squash across the wing axis, perpendicular to the sprite's heading), bob (offset
    along the path normal) and wobble (rotation jitter) — with a per-layer phase so layers
-   don't move in sync. Frames are rendered one by one (not screen-recorded, so tab throttling
+   don't move in sync. A **camera layer** turns a drawn path into a camera move: each
+   frame is a view of the background centered on the path point, zoomed between the
+   start and end zoom and kept inside the image (so panning never shows an edge); motion
+   layers get **multiplane parallax** (a layer with parallax p moves p times as much as
+   the background). The camera move is also described in the prompt ("the camera
+   smoothly pans right, tilts down and pushes in"). Frames are rendered one by one (not screen-recorded, so tab throttling
    can't drop frames) and encoded server-side by ffmpeg into an exact 24 fps H.264 MP4.
 2. **Semantic (prompt).** The prompt is generated per mode from the scene description
    and each layer's subject and *motion details* (secondary motion such as "wings
@@ -131,8 +142,8 @@ development (Dev MCP connected for account access).
 
 The trade-off: the stronger the spatial conditioning, the more literally the model
 copies the guide — including its stiff motion — so DrawTalk puts secondary motion into
-the guide itself (motion modifiers). Next steps: upload your own sprites, camera paths
-with multiplane parallax, and LLM/VLM agents for the planning and semantic roles (see
+the guide itself (motion modifiers). Next steps: upload your own sprites, outpainting
+for wider camera moves, and LLM/VLM agents for the planning and semantic roles (see
 [draw-talk.md](draw-talk.md)).
 
 **Stack:** Next.js 16 (App Router, TypeScript), HTML canvas, `@runwayml/sdk`, ffmpeg.
