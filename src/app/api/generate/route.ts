@@ -1,4 +1,5 @@
 import { TaskFailedError } from "@runwayml/sdk";
+import { readOnlyResponse } from "@/lib/demo";
 import type { RunStatus, SavedRequest } from "@/lib/api-types";
 import { getRunway } from "@/lib/runway";
 import { readRunJson, writeRunFile } from "@/lib/runs";
@@ -9,6 +10,8 @@ export const maxDuration = 600;
 // POST { runId } — runs the request saved by /api/plan through the Model Router,
 // waits for the task, and saves the output video into the run folder.
 export async function POST(request: Request) {
+  const blocked = readOnlyResponse();
+  if (blocked) return blocked;
   const { runId } = (await request.json().catch(() => ({}))) as { runId?: string };
   if (!runId) return Response.json({ error: "Missing runId." }, { status: 400 });
 

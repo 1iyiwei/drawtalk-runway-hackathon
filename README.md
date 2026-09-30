@@ -2,7 +2,14 @@
 
 Draw motion paths, describe the scene, and generate a video that follows them, using
 [Runway Dev](https://docs.dev.runwayml.com) Model Routers. Built for the
-[Runway Hackathon](https://hackathon.runway.com/). Design notes: [draw-talk.md](draw-talk.md).
+[Runway Hackathon](https://hackathon.runway.com/).
+Design notes: [draw-talk.md](draw-talk.md).
+
+## Demo video
+
+[![DrawTalkRunway demo video (3 min)](https://img.youtube.com/vi/n5Zx8ZG9J1Y/hqdefault.jpg)](https://youtu.be/n5Zx8ZG9J1Y)
+
+▶ **Watch on YouTube:** https://youtu.be/n5Zx8ZG9J1Y
 
 ## Run the demo
 
@@ -39,6 +46,14 @@ video; `brew install ffmpeg`), and a Runway Dev API key (https://dev.runway.com)
 The app routes generations through two Model Router configs that must exist in the
 Developer Portal (**Model Routers**): `drawtalk-preview` (optimize for latency) and
 `drawtalk-final` (optimize for quality). The IDs are set in `src/lib/runway.ts`.
+
+## Sharing the demo
+
+To share a running instance (e.g. through `ngrok http 3000`), set in `.env.local`:
+`DEMO_PASSWORD` (every page and API then requires a login, username `DEMO_USER`,
+default `judge`) and optionally `DEMO_READ_ONLY=1` (disables Generate / Generate
+background so visitors can't spend your credits; drawing, preview, Check route and the
+saved runs still work). Use a production build (`npm run build && npm start`).
 
 ## Using it
 
