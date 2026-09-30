@@ -3,7 +3,7 @@
 
 Use multi-modal inputs, including direct manipulation, motion paths, natural languages, and drawings to animate a static image, either imported or manually drawn.
 
-One aspect I like about this idea is that it connects to my previous works on (1) Adobe Fresco motion brush which can create animations from drawings and (2) DIS paper on narrative motion blocks and UIST paper on draw-talking which combine natural languages and drawings to create animations.
+One aspect I like about this idea is that it connects to my previous works on (1) [Adobe Fresco motion brush](https://research.adobe.com/news/behind-the-tech-motion-in-adobe-fresco/) which can create animations from drawings and (2) [DIS paper on narrative motion blocks](https://dl.acm.org/doi/10.1145/3715336.3735766) and [UIST paper on draw-talking](https://dl.acm.org/doi/10.1145/3654777.3676334) which combine natural languages and drawings to create animations.
 
 Beyond single-scene, static camera 2D animations of these prior works, there are two extensions that I want to explore with respect to the Runway model capabilities:
 1. Multi-scene, dynamic camera 3D animations. This is a more complex scenario but still uses the same set of multi-modal inputs.

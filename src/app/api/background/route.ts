@@ -1,4 +1,5 @@
 import { TaskFailedError } from "@runwayml/sdk";
+import { readOnlyResponse } from "@/lib/demo";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUNDS_DIR, JOB_ID_RE, JOBS_DIR } from "@/lib/backgrounds";
@@ -24,6 +25,8 @@ type BackgroundRequest = {
 // POST — generate a background image through the Model Router and return it as a
 // data URL (same-origin, so the canvas can use it), saving a copy in backgrounds/.
 export async function POST(request: Request) {
+  const blocked = readOnlyResponse();
+  if (blocked) return blocked;
   const body = (await request.json().catch(() => null)) as BackgroundRequest | null;
   const configId = body && ROUTER_CONFIGS[body.quality];
   if (!body?.prompt?.trim() || !configId) {
