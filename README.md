@@ -5,9 +5,36 @@ Draw motion paths, describe the scene, and generate a video that follows them, u
 [Runway Hackathon](https://hackathon.runway.com/).
 Design notes: [draw-talk.md](draw-talk.md).
 
-## Demo video
+## Demo videos
 
-[![DrawTalkRunway demo video (3 min)](https://img.youtube.com/vi/n5Zx8ZG9J1Y/hqdefault.jpg)](https://youtu.be/n5Zx8ZG9J1Y)
+**Hackathon submission video (3 min)**
+
+[![DrawTalkRunway: final hackathon submission video](https://img.youtube.com/vi/n5Zx8ZG9J1Y/hqdefault.jpg)](https://youtu.be/n5Zx8ZG9J1Y)
+
+**Full end-to-end sessions** (unedited, including generation wait times; "code v*" refers to the versions in the [timeline](#hackathon-timeline)):
+
+<table>
+<tr>
+<td align="center" width="50%">
+<a href="https://youtu.be/_x--_rO2MsI"><img src="https://img.youtube.com/vi/_x--_rO2MsI/hqdefault.jpg" width="360" alt="Session 1: Motion paths for sprites, guide video as reference (code v1)"></a><br>
+<b>Session 1</b> · Motion paths for sprites, guide video as reference (code v1)
+</td>
+<td align="center" width="50%">
+<a href="https://youtu.be/R8GCUxKfZFQ"><img src="https://img.youtube.com/vi/R8GCUxKfZFQ/hqdefault.jpg" width="360" alt="Session 2: Camera path (code v2)"></a><br>
+<b>Session 2</b> · Camera path (code v2)
+</td>
+</tr>
+<tr>
+<td align="center" width="50%">
+<a href="https://youtu.be/vrDhuli4wA0"><img src="https://img.youtube.com/vi/vrDhuli4wA0/hqdefault.jpg" width="360" alt="Session 3: Motion path over a generated background (code v2)"></a><br>
+<b>Session 3</b> · Motion path over a generated background (code v2)
+</td>
+<td align="center" width="50%">
+<a href="https://youtu.be/EJDNtuhjN4E"><img src="https://img.youtube.com/vi/EJDNtuhjN4E/hqdefault.jpg" width="360" alt="Session 4: 3D perspective, bat in a dark forest (code v3)"></a><br>
+<b>Session 4</b> · 3D perspective, bat in a dark forest (code v3)
+</td>
+</tr>
+</table>
 
 ## Hackathon timeline
 
