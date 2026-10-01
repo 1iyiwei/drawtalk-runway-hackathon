@@ -31,28 +31,8 @@ Describing motion in words is hard: "the bee lands on the second rose, then flie
 
 ## Hackathon timeline
 
-**Built at the hackathon.** Before Sept 30 the repo contained only the Next.js scaffold
-(`create-next-app`), a generic Runway SDK starter from the Runway Dev quickstart (a
-one-form text/image-to-video page, since replaced), installed agent skills, and design
-notes. All DrawTalkRunway functionality — motion paths, layers, guide videos, motion
-modifiers, camera paths, 3D perspective, background generation, Model Router
-integration, progress, sharing — was written on Sept 30 between 9:30 and 16:00, in
-PRs #1–#5. About **85% of the current code was written that day**; the rest is framework
-boilerplate, configuration, and the generic SDK client and error-handling pattern.
-Built with an AI coding assistant (Claude Code).
-
-| When (PDT) | What |
-|---|---|
-| Sept 26 | Next.js scaffold, generic Runway SDK starter, agent skills, idea and logistics notes (`fdaa59f`–`5b2e542`) |
-| Sept 30, 9:11 | Design notes only (`e0b347d`) |
-| 9:53 | PR #1 — v0: drawn motion paths and layers → guide image → video |
-| 12:01 | PR #2 — v1: guide video, sprites, motion modifiers, looser reference mode, progress |
-| 12:42 | PR #3 — v2: camera paths, parallax, background generation |
-| 14:25 | PR #4 — v3: 3D perspective (horizon, dolly camera, sprite depth), editor auto-save |
-| 15:56 | PR #5 — v4: password-protected sharing, demo video in the README |
-
-Exactly what changed on the day:
-https://github.com/1iyiwei/runway-hackathon/compare/5b2e542...main
+Everything was built on Sept 30 apart from a generic pre-event scaffold; see the
+[Hackathon timeline](README.md#hackathon-timeline) in the README for details.
 
 ## What we learned
 

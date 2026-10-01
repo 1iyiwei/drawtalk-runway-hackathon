@@ -11,28 +11,26 @@ Design notes: [draw-talk.md](draw-talk.md).
 
 [![DrawTalkRunway: final hackathon submission video](https://img.youtube.com/vi/n5Zx8ZG9J1Y/hqdefault.jpg)](https://youtu.be/n5Zx8ZG9J1Y)
 
-**Full end-to-end sessions** (unedited, including generation wait times; "code v*" refers to the versions in the [timeline](#hackathon-timeline)):
+**End-to-end sessions and their outputs** (sessions are unedited, including generation
+wait times; "code v*" refers to the versions in the [timeline](#hackathon-timeline)):
 
 <table>
+<tr><th>Authoring session</th><th>Runway output</th></tr>
 <tr>
-<td align="center" width="50%">
-<a href="https://youtu.be/_x--_rO2MsI"><img src="https://img.youtube.com/vi/_x--_rO2MsI/hqdefault.jpg" width="360" alt="Session 1: Motion paths for sprites, guide video as reference (code v1)"></a><br>
-<b>Session 1</b> · Motion paths for sprites, guide video as reference (code v1)
-</td>
-<td align="center" width="50%">
-<a href="https://youtu.be/R8GCUxKfZFQ"><img src="https://img.youtube.com/vi/R8GCUxKfZFQ/hqdefault.jpg" width="360" alt="Session 2: Camera path (code v2)"></a><br>
-<b>Session 2</b> · Camera path (code v2)
-</td>
+<td align="center" width="50%"><a href="https://youtu.be/_x--_rO2MsI"><img src="https://img.youtube.com/vi/_x--_rO2MsI/hqdefault.jpg" width="360" alt="Session 1 · Sprite paths (code v1)"></a><br>Session 1 · Sprite paths (code v1)</td>
+<td align="center" width="50%"><a href="https://youtu.be/lhgQTU5mzDo"><img src="https://img.youtube.com/vi/lhgQTU5mzDo/hqdefault.jpg" width="360" alt="Output · butterfly and bee"></a><br>Output · butterfly and bee</td>
 </tr>
 <tr>
-<td align="center" width="50%">
-<a href="https://youtu.be/vrDhuli4wA0"><img src="https://img.youtube.com/vi/vrDhuli4wA0/hqdefault.jpg" width="360" alt="Session 3: Motion path over a generated background (code v2)"></a><br>
-<b>Session 3</b> · Motion path over a generated background (code v2)
-</td>
-<td align="center" width="50%">
-<a href="https://youtu.be/EJDNtuhjN4E"><img src="https://img.youtube.com/vi/EJDNtuhjN4E/hqdefault.jpg" width="360" alt="Session 4: 3D perspective, bat in a dark forest (code v3)"></a><br>
-<b>Session 4</b> · 3D perspective, bat in a dark forest (code v3)
-</td>
+<td align="center" width="50%"><a href="https://youtu.be/R8GCUxKfZFQ"><img src="https://img.youtube.com/vi/R8GCUxKfZFQ/hqdefault.jpg" width="360" alt="Session 2 · Camera path (code v2)"></a><br>Session 2 · Camera path (code v2)</td>
+<td align="center" width="50%"><a href="https://youtu.be/gSvQjOjXenM"><img src="https://img.youtube.com/vi/gSvQjOjXenM/hqdefault.jpg" width="360" alt="Output · butterfly with camera pan"></a><br>Output · butterfly with camera pan</td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://youtu.be/vrDhuli4wA0"><img src="https://img.youtube.com/vi/vrDhuli4wA0/hqdefault.jpg" width="360" alt="Session 3 · Paths over a background (code v2)"></a><br>Session 3 · Paths over a background (code v2)</td>
+<td align="center" width="50%"><a href="https://youtu.be/900Qtj27GlE"><img src="https://img.youtube.com/vi/900Qtj27GlE/hqdefault.jpg" width="360" alt="Output · bee visiting flowers"></a><br>Output · bee visiting flowers</td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://youtu.be/EJDNtuhjN4E"><img src="https://img.youtube.com/vi/EJDNtuhjN4E/hqdefault.jpg" width="360" alt="Session 4 · 3D perspective (code v3)"></a><br>Session 4 · 3D perspective (code v3)</td>
+<td align="center" width="50%"><a href="https://youtu.be/Lx2O_ZJpBdw"><img src="https://img.youtube.com/vi/Lx2O_ZJpBdw/hqdefault.jpg" width="360" alt="Output · bat in a dark forest"></a><br>Output · bat in a dark forest</td>
 </tr>
 </table>
 
@@ -46,7 +44,7 @@ modifiers, camera paths, 3D perspective, background generation, Model Router
 integration, progress, sharing — was written on Sept 30 between 9:30 and 16:00, in
 PRs #1–#5. About **85% of the current code was written that day**; the rest is framework
 boilerplate, configuration, and the generic SDK client and error-handling pattern.
-Built with an AI coding assistant (Claude Code).
+Built with an AI coding assistant (Claude Code). I designed the approach and directed each iteration; during the hackathon I ran the prototype, evaluated the outputs, and iterated with Claude, without looking at the generated code.
 
 | When (PDT) | What |
 |---|---|
