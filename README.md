@@ -57,7 +57,7 @@ Built with an AI coding assistant (Claude Code). I designed the approach and dir
 | 15:56 | PR #5 — v4: password-protected sharing, demo video in the README |
 
 Exactly what changed on the day:
-https://github.com/1iyiwei/runway-hackathon/compare/5b2e542...main
+https://github.com/1iyiwei/drawtalk-runway-hackathon/compare/5b2e542...main
 
 ## Run the demo
 

@@ -1,7 +1,7 @@
 # DrawTalkRunway — Runway Hackathon submission (Sept 30, 2026)
 
 - **Demo video (3 min):** https://youtu.be/n5Zx8ZG9J1Y
-- **Code:** https://github.com/1iyiwei/runway-hackathon
+- **Code:** https://github.com/1iyiwei/drawtalk-runway-hackathon
 - **Live demo:** https://transform-evolve-sector.ngrok-free.dev (temporary, password-protected; login shared separately)
 
 ## One-liner
